@@ -1,4 +1,3 @@
-
 import { useRef, useEffect, useState } from "react";
 import Hls from "hls.js";
 import { Card } from "@/components/ui/card";
@@ -6,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Volume2, VolumeX, Maximize, Pause, Play, SkipBack, SkipForward } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 interface VideoPlayerProps {
   src: string;
@@ -33,6 +33,7 @@ export default function VideoPlayer({
   const [duration, setDuration] = useState(0);
   const [showControls, setShowControls] = useState(true);
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [autoplayFailed, setAutoplayFailed] = useState(false);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -59,7 +60,6 @@ export default function VideoPlayer({
     video.addEventListener("play", handlePlay);
     video.addEventListener("pause", handlePause);
 
-    // Initialize HLS if applicable
     if (src.includes(".m3u8")) {
       if (Hls.isSupported()) {
         const hls = new Hls({
@@ -70,21 +70,49 @@ export default function VideoPlayer({
         hls.attachMedia(video);
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           if (autoPlay) {
-            video.play().catch(err => console.error("Autoplay failed:", err));
+            video.play().catch(err => {
+              console.error("Autoplay failed:", err);
+              setAutoplayFailed(true);
+              toast.info("Click play to start streaming", {
+                description: "Autoplay is restricted by your browser",
+                duration: 5000,
+              });
+            });
+          }
+        });
+        
+        hls.on(Hls.Events.ERROR, (event, data) => {
+          if (data.fatal) {
+            console.error("HLS error:", data);
+            toast.error("Stream loading error", {
+              description: "There was an issue loading the stream. Please try again.",
+            });
           }
         });
       } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
-        // Native HLS support (Safari)
         video.src = src;
         if (autoPlay) {
-          video.play().catch(err => console.error("Autoplay failed:", err));
+          video.play().catch(err => {
+            console.error("Autoplay failed:", err);
+            setAutoplayFailed(true);
+            toast.info("Click play to start streaming", {
+              description: "Autoplay is restricted by your browser",
+              duration: 5000,
+            });
+          });
         }
       }
     } else {
-      // Regular video
       video.src = src;
       if (autoPlay) {
-        video.play().catch(err => console.error("Autoplay failed:", err));
+        video.play().catch(err => {
+          console.error("Autoplay failed:", err);
+          setAutoplayFailed(true);
+          toast.info("Click play to start streaming", {
+            description: "Autoplay is restricted by your browser",
+            duration: 5000,
+          });
+        });
       }
     }
 
@@ -97,7 +125,6 @@ export default function VideoPlayer({
   }, [src, autoPlay]);
 
   useEffect(() => {
-    // Handle controls visibility timeout
     const container = containerRef.current;
     if (!container) return;
 
@@ -231,6 +258,22 @@ export default function VideoPlayer({
         playsInline
         onClick={togglePlay}
       />
+      
+      {autoplayFailed && !isPlaying && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/50" onClick={togglePlay}>
+          <Button 
+            variant="outline" 
+            size="lg" 
+            className="rounded-full w-16 h-16 flex items-center justify-center"
+            onClick={(e) => {
+              e.stopPropagation();
+              togglePlay();
+            }}
+          >
+            <Play className="h-8 w-8" />
+          </Button>
+        </div>
+      )}
       
       {controls && showControls && (
         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent flex flex-col justify-end p-4 transition-opacity duration-300">
