@@ -69,8 +69,8 @@ export function configureHlsLoader(hls: Hls): void {
         maxNumRetry: 3,
         retryDelayMs: 1000,
         maxRetryDelayMs: 8000
-      },
-      maxRetry: 3
+      }
+      // Removed maxRetry as it's not a valid property
     }
   };
 }
