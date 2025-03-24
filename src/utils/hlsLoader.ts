@@ -16,6 +16,18 @@ export function configureHlsLoader(hls: Hls): void {
     
     // Log request for debugging
     console.log(`HLS requesting: ${url}`);
+    
+    // Check if this is a .ts file instead of .m3u8
+    if (url.endsWith('.m3u8') && url.includes('/')) {
+      const origUrl = url;
+      const host = url.split('/').slice(0, -1).join('/');
+      const filename = url.split('/').pop();
+      
+      if (filename && filename.includes('.')) {
+        // Try with .ts extension if server returns 404 for .m3u8
+        console.log(`URL might need .ts extension: ${url}`);
+      }
+    }
   };
   
   // Configure more aggressive recovery options
@@ -28,8 +40,8 @@ export function configureHlsLoader(hls: Hls): void {
   hls.config.maxMaxBufferLength = 600;
   hls.config.maxBufferSize = 60 * 1000 * 1000; // 60MB
   
-  // Enable low latency mode
-  hls.config.lowLatencyMode = true;
+  // Disable low latency mode for better compatibility
+  hls.config.lowLatencyMode = false;
   
   // Optimize recovery behavior
   hls.config.maxBufferHole = 0.5;

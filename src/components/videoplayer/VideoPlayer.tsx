@@ -96,6 +96,15 @@ export default function VideoPlayer({
         
         hlsRef.current = hls;
         
+        if (isTsFile && !isHlsStream) {
+          console.log("Loading TS file directly:", sourceUrl);
+          video.src = sourceUrl;
+          video.load();
+          handleAutoPlay();
+          return true;
+        }
+        
+        console.log("Loading with HLS.js:", sourceUrl);
         hls.loadSource(sourceUrl);
         hls.attachMedia(video);
         
@@ -210,10 +219,15 @@ export default function VideoPlayer({
       });
     };
 
-    if (isHlsStream || isTsFile) {
+    if (isHlsStream) {
       if (!setupHlsStreaming(src)) {
         tryDirectPlayback();
       }
+    } else if (isTsFile) {
+      console.log("Loading TS file directly:", src);
+      video.src = src;
+      video.load();
+      handleAutoPlay();
     } else {
       fallbackToDirectSrc();
     }

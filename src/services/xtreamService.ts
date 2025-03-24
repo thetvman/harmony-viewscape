@@ -78,30 +78,20 @@ class XtreamService {
       domain = domain.slice(0, -1);
     }
     
-    // Prefer m3u8 format for better browser compatibility
+    // Always use the provided extension - don't try to use m3u8 unless specifically requested
     if (type === 'live') {
-      // Try to use m3u8 for live TV when possible
-      // Some servers support this format swap by just changing the extension
-      if (this.shouldUseM3u8(streamId, type)) {
-        return `${domain}/${username}/${password}/${streamId}.m3u8`;
-      }
-      // Fall back to requested extension
       return `${domain}/${username}/${password}/${streamId}.${extension}`;
     } else if (type === 'movie') {
-      // For movies, respect the container extension provided
       return `${domain}/${username}/${password}/${type}/${streamId}.${extension}`;
     } else {
-      // Series episodes
       return `${domain}/${username}/${password}/${type}/${streamId}.${extension}`;
     }
   }
   
-  // Helper to determine if we should use m3u8 format
+  // Remove the m3u8 auto-detection - always respect the requested format
   private shouldUseM3u8(streamId: number, type: 'live' | 'movie' | 'series'): boolean {
-    // In a real implementation, this could check server capabilities
-    // or use a previously successful format for this stream
-    // For now, we'll always try m3u8 for live streams first
-    return type === 'live';
+    // Only return true if explicitly asked for m3u8
+    return false;
   }
 
   private async fetchData<T>(endpoint: string, params: Record<string, string> = {}): Promise<T> {
