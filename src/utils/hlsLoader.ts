@@ -56,10 +56,13 @@ export function configureHlsLoader(hls: Hls): void {
   hls.config.enableWorker = true;
   hls.config.fragLoadPolicy = {
     default: {
-      maxRetry: 3,
-      retryDelay: 1000,
-      maxRetryDelay: 8000,
-      timeout: 20000,
+      retryDelayMs: 1000,
+      maxRetryDelayMs: 8000,
+      maxTimeToFirstByteMs: 20000,
+      maxLoadTimeMs: 20000,
+      errorRetry: true,
+      timeoutRetry: true,
+      maxRetry: 3
     }
   };
 }
