@@ -1,10 +1,4 @@
-
 import { toast } from "sonner";
-
-export interface M3uPlaylist {
-  url: string;
-  name?: string;
-}
 
 interface Channel {
   id: string;
@@ -14,156 +8,190 @@ interface Channel {
   url: string;
 }
 
+interface M3uCredentials {
+  url: string;
+}
+
 class M3uService {
-  private playlist: M3uPlaylist | null = null;
-  private channels: Channel[] = [];
-  private isLoading = false;
+  private credentials: M3uCredentials | null = null;
+  private _channels: Record<string, Channel[]> = {};
+  private movies: Record<string, Channel[]> = {};
+  private series: Record<string, Channel[]> = {};
+  private isLoading: boolean = false;
   
   constructor() {
-    // Try to load playlist from localStorage on initialization
-    const savedPlaylist = localStorage.getItem("m3u_playlist");
-    if (savedPlaylist) {
+    // Try to load credentials from localStorage on initialization
+    const savedCredentials = localStorage.getItem("m3u_credentials");
+    if (savedCredentials) {
       try {
-        this.playlist = JSON.parse(savedPlaylist);
+        this.credentials = JSON.parse(savedCredentials);
       } catch (error) {
-        console.error("Failed to parse saved playlist:", error);
-        localStorage.removeItem("m3u_playlist");
+        console.error("Failed to parse saved credentials:", error);
+        localStorage.removeItem("m3u_credentials");
       }
     }
   }
-
-  public getPlaylist(): M3uPlaylist | null {
-    return this.playlist;
-  }
-
-  public setPlaylist(playlist: M3uPlaylist): void {
-    this.playlist = playlist;
-    localStorage.setItem("m3u_playlist", JSON.stringify(playlist));
-    this.channels = []; // Reset channels when setting new playlist
-  }
-
-  public clearPlaylist(): void {
-    this.playlist = null;
-    this.channels = [];
-    localStorage.removeItem("m3u_playlist");
-  }
-
-  public isAuthenticated(): boolean {
-    return !!this.playlist;
-  }
-
-  public async loadChannels(): Promise<Channel[]> {
-    if (!this.playlist) {
-      throw new Error("No playlist URL set");
-    }
+  
+  public setCredentials(credentials: M3uCredentials) {
+    this.credentials = credentials;
     
-    if (this.channels.length > 0) {
-      return this.channels;
+    // Save credentials to localStorage
+    localStorage.setItem("m3u_credentials", JSON.stringify(credentials));
+  }
+  
+  public getCredentials(): M3uCredentials | null {
+    return this.credentials;
+  }
+  
+  public clearCredentials() {
+    this.credentials = null;
+    localStorage.removeItem("m3u_credentials");
+    this._channels = {};
+  }
+  
+  public isAuthenticated(): boolean {
+    return !!this.credentials;
+  }
+  
+  public async loadChannels(): Promise<void> {
+    if (!this.credentials) {
+      throw new Error("M3U URL is required");
     }
     
     if (this.isLoading) {
-      return [];
+      return;
     }
     
     this.isLoading = true;
     
     try {
-      // Fetch the m3u8 file content
-      const response = await fetch(this.playlist.url);
-      
+      const response = await fetch(this.credentials.url);
       if (!response.ok) {
-        throw new Error(`Failed to fetch playlist: ${response.status} ${response.statusText}`);
+        throw new Error(`Failed to fetch M3U file: ${response.status} ${response.statusText}`);
       }
       
       const content = await response.text();
-      this.channels = this.parseM3u8Content(content);
-      this.isLoading = false;
-      return this.channels;
+      this.parsePlaylist(content);
+      
+      toast.success("Playlist loaded successfully!");
     } catch (error) {
-      this.isLoading = false;
-      console.error("Error loading channels:", error);
+      console.error("Error loading M3U playlist:", error);
+      this.clearCredentials();
       
       if (error instanceof Error) {
-        toast.error(`Failed to load channels: ${error.message}`);
+        toast.error(`Failed to load playlist: ${error.message}`);
       } else {
-        toast.error("Failed to load channels");
+        toast.error("Failed to load playlist");
       }
       
       throw error;
+    } finally {
+      this.isLoading = false;
     }
   }
-
+  
   public getChannelsByGroup(): Record<string, Channel[]> {
-    const groups: Record<string, Channel[]> = {};
-    
-    for (const channel of this.channels) {
-      const group = channel.group || "Unknown";
-      
-      if (!groups[group]) {
-        groups[group] = [];
-      }
-      
-      groups[group].push(channel);
-    }
-    
-    return groups;
+    return this._channels;
   }
-
-  private parseM3u8Content(content: string): Channel[] {
-    const channels: Channel[] = [];
-    const lines = content.split("\n");
+  
+  public parsePlaylist(content: string): void {
+    this._channels = {};
+    this.movies = {};
+    this.series = {};
     
-    let currentChannel: Partial<Channel> = {};
+    const lines = content.split("\n");
+    let currentChannel: Partial<Channel> | null = null;
     
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i].trim();
       
-      if (line === "#EXTM3U" || line === "") {
-        continue;
-      }
-      
-      if (line.startsWith("#EXTINF:")) {
-        // Parse channel info line
+      // Parse channel info line
+      if (line.startsWith("#EXTINF")) {
         currentChannel = {};
         
-        // Extract channel name
-        const nameMatch = line.match(/,(.*?)$/);
-        if (nameMatch && nameMatch[1]) {
-          currentChannel.name = nameMatch[1].trim();
+        // Parse ID
+        const tvgIdMatch = line.match(/tvg-id="([^"]*)"/);
+        if (tvgIdMatch && tvgIdMatch[1]) {
+          currentChannel.id = tvgIdMatch[1];
+        } else {
+          currentChannel.id = `channel-${Math.random().toString(36).substring(2, 9)}`;
         }
         
-        // Extract other attributes if present
+        // Parse logo
         const tvgLogoMatch = line.match(/tvg-logo="([^"]*)"/);
         if (tvgLogoMatch && tvgLogoMatch[1]) {
           currentChannel.logo = tvgLogoMatch[1];
         }
         
-        const groupMatch = line.match(/group-title="([^"]*)"/);
-        if (groupMatch && groupMatch[1]) {
-          currentChannel.group = groupMatch[1];
+        // Parse group
+        const groupTitleMatch = line.match(/group-title="([^"]*)"/);
+        if (groupTitleMatch && groupTitleMatch[1]) {
+          currentChannel.group = groupTitleMatch[1];
         } else {
-          currentChannel.group = "Unknown";
+          currentChannel.group = "Uncategorized";
         }
         
-        const idMatch = line.match(/tvg-id="([^"]*)"/);
-        if (idMatch && idMatch[1]) {
-          currentChannel.id = idMatch[1];
+        // Parse name (at the end of the line after the last comma)
+        const nameMatch = line.match(/,([^,]*)$/);
+        if (nameMatch && nameMatch[1]) {
+          currentChannel.name = nameMatch[1].trim();
+        } else {
+          currentChannel.name = `Unknown Channel ${i}`;
         }
-      } else if (line.startsWith("http") && currentChannel.name) {
-        // This line contains the stream URL
+      }
+      
+      // Parse URL line
+      else if (line && !line.startsWith("#") && currentChannel) {
         currentChannel.url = line;
-        currentChannel.id = currentChannel.id || `channel-${channels.length}`;
         
-        channels.push(currentChannel as Channel);
-        currentChannel = {};
+        // Add to the appropriate category based on group title or URL
+        // Common VOD indicators in group titles
+        const isMovie = (currentChannel.group?.toLowerCase().includes('movie') || 
+                        currentChannel.group?.toLowerCase().includes('vod')) && 
+                        !currentChannel.group?.toLowerCase().includes('series');
+                        
+        const isSeries = currentChannel.group?.toLowerCase().includes('series');
+        
+        // Create final channel object
+        const channel: Channel = {
+          id: currentChannel.id!,
+          name: currentChannel.name!,
+          url: currentChannel.url,
+          group: currentChannel.group,
+          logo: currentChannel.logo
+        };
+        
+        // Add to the appropriate collection
+        if (isMovie) {
+          if (!this.movies[currentChannel.group!]) {
+            this.movies[currentChannel.group!] = [];
+          }
+          this.movies[currentChannel.group!].push(channel);
+        }
+        else if (isSeries) {
+          if (!this.series[currentChannel.group!]) {
+            this.series[currentChannel.group!] = [];
+          }
+          this.series[currentChannel.group!].push(channel);
+        }
+        else {
+          if (!this._channels[currentChannel.group!]) {
+            this._channels[currentChannel.group!] = [];
+          }
+          this._channels[currentChannel.group!].push(channel);
+        }
+        
+        currentChannel = null;
       }
     }
-    
-    return channels;
   }
-
-  public getChannelById(id: string): Channel | undefined {
-    return this.channels.find(channel => channel.id === id);
+  
+  public getMoviesByGroup(): Record<string, Channel[]> {
+    return this.movies;
+  }
+  
+  public getSeriesByGroup(): Record<string, Channel[]> {
+    return this.series;
   }
 }
 
