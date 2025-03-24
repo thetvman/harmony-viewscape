@@ -13,6 +13,7 @@ import {
 class XtreamService {
   private credentials: XtreamCredentials | null = null;
   private baseUrl: string = "";
+  private useTranscoding: boolean = false;
   
   constructor() {
     // Try to load credentials from localStorage on initialization
@@ -26,6 +27,10 @@ class XtreamService {
         localStorage.removeItem("xtream_credentials");
       }
     }
+    
+    // Load transcoding preference from localStorage
+    const transcoding = localStorage.getItem("use_transcoding");
+    this.useTranscoding = transcoding === "true";
   }
 
   private setupBaseUrl() {
@@ -65,6 +70,25 @@ class XtreamService {
     return !!this.credentials;
   }
 
+  public toggleTranscoding(enabled: boolean): void {
+    this.useTranscoding = enabled;
+    localStorage.setItem("use_transcoding", enabled.toString());
+    
+    toast.info(
+      enabled ? "Server-side transcoding enabled" : "Server-side transcoding disabled",
+      {
+        description: enabled 
+          ? "Streams will be converted to a more compatible format" 
+          : "Using original stream format",
+        duration: 3000
+      }
+    );
+  }
+  
+  public isTranscodingEnabled(): boolean {
+    return this.useTranscoding;
+  }
+
   public getStreamUrl(streamId: number, type: 'live' | 'movie' | 'series', extension: string = 'ts'): string {
     if (!this.credentials) {
       throw new Error("Not authenticated");
@@ -79,7 +103,19 @@ class XtreamService {
       domain = domain.slice(0, -1);
     }
     
-    // For live streams, ALWAYS use TS extension
+    // When transcoding is enabled, use the /play/ endpoint which typically provides 
+    // transcoded streams in many Xtream servers
+    if (this.useTranscoding) {
+      if (type === 'live') {
+        return `${domain}/play/${username}/${password}/${streamId}.m3u8`;
+      } else if (type === 'movie') {
+        return `${domain}/play/${username}/${password}/movie/${streamId}.m3u8`;
+      } else {
+        return `${domain}/play/${username}/${password}/${type}/${streamId}.m3u8`;
+      }
+    }
+    
+    // Original non-transcoded URLs
     if (type === 'live') {
       return `${domain}/${username}/${password}/${streamId}.ts`;
     } else if (type === 'movie') {

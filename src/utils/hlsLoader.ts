@@ -17,6 +17,11 @@ export function configureHlsLoader(hls: Hls): void {
     // Log request for debugging
     console.log(`HLS requesting: ${url}`);
     
+    // If this URL contains 'play' path, it's likely a transcoded stream
+    if (url.includes('/play/')) {
+      console.log(`Detected transcoded stream: ${url}`);
+    }
+    
     // Check if this is a .ts file instead of .m3u8
     if (url.endsWith('.m3u8') && url.includes('/')) {
       const origUrl = url;
@@ -77,6 +82,10 @@ export function configureHlsLoader(hls: Hls): void {
 
 export function isTsFile(url: string): boolean {
   return url.endsWith('.ts') || url.includes('.ts?');
+}
+
+export function isTranscodedStream(url: string): boolean {
+  return url.includes('/play/') && url.endsWith('.m3u8');
 }
 
 export function createTsSourceBuffer(mediaSource: MediaSource): SourceBuffer | null {
