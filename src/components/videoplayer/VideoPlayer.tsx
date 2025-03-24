@@ -1,4 +1,3 @@
-
 import { useRef, useEffect, useState } from "react";
 import Hls from "hls.js";
 import { Card } from "@/components/ui/card";
@@ -36,13 +35,6 @@ export default function VideoPlayer({
   const [showControls, setShowControls] = useState(true);
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [autoplayFailed, setAutoplayFailed] = useState(false);
-
-  const getProxiedUrl = (originalUrl: string): string => {
-    if (originalUrl.includes(".ts")) {
-      return `https://cors-anywhere.herokuapp.com/${originalUrl}`;
-    }
-    return originalUrl;
-  };
 
   useEffect(() => {
     const video = videoRef.current;
@@ -90,25 +82,20 @@ export default function VideoPlayer({
 
     const setupHlsStreaming = (sourceUrl: string) => {
       if (Hls.isSupported()) {
-        // Create new HLS instance with XHR loader configuration
+        // Create new HLS instance with optimized configuration
         const hls = new Hls({
           enableWorker: true,
           lowLatencyMode: sourceUrl.includes(".m3u8"),
           debug: false,
+          // Direct loading without CORS proxy
           xhrSetup: (xhr, url) => {
-            // Configure XHR for TS files
-            if (url.includes(".ts")) {
-              // Use CORS proxy for .ts files
-              const proxiedUrl = getProxiedUrl(url);
-              xhr.open('GET', proxiedUrl, true);
-              console.log("XHR loader using proxied URL for TS file:", proxiedUrl);
-            }
+            // Add custom headers if needed
+            xhr.withCredentials = false; // Important for CORS
           },
         });
         
         hlsRef.current = hls;
         
-        // Use the original URL for the manifest
         hls.loadSource(sourceUrl);
         hls.attachMedia(video);
         
@@ -135,13 +122,7 @@ export default function VideoPlayer({
               default:
                 console.error("Unrecoverable HLS error");
                 // Fall back to direct playback as last resort
-                if (window.MediaSource && sourceUrl.includes(".ts")) {
-                  video.src = getProxiedUrl(sourceUrl);
-                  handleAutoPlay();
-                } else {
-                  video.src = sourceUrl;
-                  handleAutoPlay();
-                }
+                tryDirectPlayback();
                 break;
             }
           }
@@ -154,31 +135,16 @@ export default function VideoPlayer({
       return false;
     };
 
-    // Always try to use HLS.js first
-    if (setupHlsStreaming(src) === false) {
-      // Fallback if HLS.js is not supported
-      console.log("Falling back to native playback");
-      
-      if (src.includes(".ts")) {
-        console.log("TS playback using proxied URL");
-        video.src = getProxiedUrl(src);
-      } else {
-        video.src = src;
-      }
-      
+    const tryDirectPlayback = () => {
+      console.log("Attempting direct video playback");
+      video.src = src;
+      video.load();
       handleAutoPlay();
       
       // Add error handler for native playback
       const handleError = () => {
         console.error("Native playback error");
-        toast.error("Format not supported", {
-          description: "Your browser doesn't support this video format. Try using VLC player instead.",
-          action: {
-            label: "Use VLC",
-            onClick: () => openInVlc(),
-          },
-          duration: 10000,
-        });
+        showVlcOption();
       };
       
       video.addEventListener("error", handleError);
@@ -186,6 +152,27 @@ export default function VideoPlayer({
       return () => {
         video.removeEventListener("error", handleError);
       };
+    };
+
+    const showVlcOption = () => {
+      toast.error("Format not supported", {
+        description: "Your browser doesn't support this video format. Try using VLC player instead.",
+        action: {
+          label: "Use VLC",
+          onClick: () => openInVlc(),
+        },
+        duration: 10000,
+      });
+    };
+
+    // Try HLS.js first if it's an HLS stream
+    if (src.includes(".m3u8") || src.includes(".ts")) {
+      if (setupHlsStreaming(src) === false) {
+        tryDirectPlayback();
+      }
+    } else {
+      // For other formats, try direct playback
+      tryDirectPlayback();
     }
 
     return () => {
