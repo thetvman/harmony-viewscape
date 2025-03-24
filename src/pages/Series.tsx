@@ -1,5 +1,5 @@
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { m3uService } from "@/services/m3uService";
 import { Card, CardContent } from "@/components/ui/card";
@@ -141,7 +141,7 @@ const Series = () => {
   }, [selectedCategory]);
   
   // Group series when allSeries changes or search query changes
-  const seriesGroups = React.useMemo(() => {
+  const seriesGroups = useMemo(() => {
     const filtered = allSeries.filter(series => 
       series.name.toLowerCase().includes(searchQuery.toLowerCase())
     );
