@@ -1,4 +1,3 @@
-
 import Hls from 'hls.js';
 
 // Configure enhanced HLS loader settings
@@ -22,20 +21,7 @@ export function configureHlsLoader(hls: Hls): void {
       console.log(`Detected transcoded stream: ${url}`);
     }
     
-    // Check if this is a .ts file instead of .m3u8
-    if (url.endsWith('.m3u8') && url.includes('/')) {
-      const origUrl = url;
-      const host = url.split('/').slice(0, -1).join('/');
-      const filename = url.split('/').pop();
-      
-      if (filename && filename.includes('.')) {
-        // Replace .m3u8 with .ts if needed
-        const tsUrl = url.replace('.m3u8', '.ts');
-        console.log(`Trying TS URL instead: ${tsUrl}`);
-        xhr.open('GET', tsUrl, true);
-        return;
-      }
-    }
+    // No need to manipulate m3u8 URLs to try TS format as we're now using m3u8 intentionally
   };
   
   // Configure more aggressive recovery options
@@ -75,13 +61,16 @@ export function configureHlsLoader(hls: Hls): void {
         retryDelayMs: 1000,
         maxRetryDelayMs: 8000
       }
-      // Removed maxRetry as it's not a valid property
     }
   };
 }
 
 export function isTsFile(url: string): boolean {
   return url.endsWith('.ts') || url.includes('.ts?');
+}
+
+export function isM3u8File(url: string): boolean {
+  return url.endsWith('.m3u8') || url.includes('.m3u8?');
 }
 
 export function isTranscodedStream(url: string): boolean {

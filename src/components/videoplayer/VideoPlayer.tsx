@@ -1,4 +1,3 @@
-
 import { useRef, useEffect, useState } from "react";
 import Hls from "hls.js";
 import { Card } from "@/components/ui/card";
@@ -7,7 +6,7 @@ import { Slider } from "@/components/ui/slider";
 import { Volume2, VolumeX, Maximize, Pause, Play, SkipBack, SkipForward, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { configureHlsLoader, isTsFile, createTsSourceBuffer } from "@/utils/hlsLoader";
+import { configureHlsLoader, isTsFile, isM3u8File, createTsSourceBuffer } from "@/utils/hlsLoader";
 
 interface VideoPlayerProps {
   src: string;
@@ -94,7 +93,6 @@ export default function VideoPlayer({
       }
     };
 
-    // Clean up previous instances
     if (hlsRef.current) {
       hlsRef.current.destroy();
       hlsRef.current = null;
@@ -111,10 +109,9 @@ export default function VideoPlayer({
       mediaSourceRef.current = null;
     }
 
-    const isHlsStream = src.includes(".m3u8");
+    const isHlsStream = isM3u8File(src);
     const tsSrc = isTsFile(src);
     
-    // Set loading state while we determine playback method
     setIsLoading(true);
     setFormatError(false);
     
@@ -181,7 +178,6 @@ export default function VideoPlayer({
       }
       
       try {
-        // Create a new MediaSource
         const mediaSource = new MediaSource();
         mediaSourceRef.current = mediaSource;
         video.src = URL.createObjectURL(mediaSource);
@@ -195,18 +191,15 @@ export default function VideoPlayer({
               throw new Error(`Failed to fetch TS file: ${response.status} ${response.statusText}`);
             }
             
-            // Get the data as an ArrayBuffer
             const arrayBuffer = await response.arrayBuffer();
             console.log(`Downloaded ${arrayBuffer.byteLength} bytes of TS data`);
             
-            // Create a source buffer with appropriate MIME type
             const sourceBuffer = createTsSourceBuffer(mediaSource);
             
             if (!sourceBuffer) {
               throw new Error("Failed to create source buffer");
             }
             
-            // Add the data to the source buffer
             sourceBuffer.addEventListener('updateend', () => {
               if (!sourceBuffer.updating && mediaSource.readyState === 'open') {
                 try {
@@ -219,7 +212,6 @@ export default function VideoPlayer({
               }
             });
             
-            // Handle errors
             sourceBuffer.addEventListener('error', (err) => {
               console.error("Source buffer error:", err);
               setFormatError(true);
@@ -233,7 +225,6 @@ export default function VideoPlayer({
           }
         });
         
-        // Handle MediaSource errors
         mediaSource.addEventListener('error', (err) => {
           console.error("MediaSource error:", err);
           tryDirectPlayback();

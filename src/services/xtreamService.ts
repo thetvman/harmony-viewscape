@@ -1,4 +1,3 @@
-
 import { toast } from "sonner";
 import {
   XtreamCredentials,
@@ -89,7 +88,7 @@ class XtreamService {
     return this.useTranscoding;
   }
 
-  public getStreamUrl(streamId: number, type: 'live' | 'movie' | 'series', extension: string = 'ts'): string {
+  public getStreamUrl(streamId: number, type: 'live' | 'movie' | 'series', extension: string = 'm3u8'): string {
     if (!this.credentials) {
       throw new Error("Not authenticated");
     }
@@ -115,9 +114,9 @@ class XtreamService {
       }
     }
     
-    // Original non-transcoded URLs
+    // For direct streaming, now using m3u8 instead of ts for all types
     if (type === 'live') {
-      return `${domain}/${username}/${password}/${streamId}.ts`;
+      return `${domain}/${username}/${password}/${streamId}.${extension}`;
     } else if (type === 'movie') {
       return `${domain}/${username}/${password}/${type}/${streamId}.${extension}`;
     } else {
@@ -126,8 +125,8 @@ class XtreamService {
   }
 
   private shouldUseM3u8(streamId: number, type: 'live' | 'movie' | 'series'): boolean {
-    // Only return true if explicitly asked for m3u8
-    return false;
+    // Always return true as we now prefer m3u8 format
+    return true;
   }
 
   private async fetchData<T>(endpoint: string, params: Record<string, string> = {}): Promise<T> {
