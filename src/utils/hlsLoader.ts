@@ -62,13 +62,13 @@ export function configureHlsLoader(hls: Hls): void {
       maxLoadTimeMs: 20000,
       errorRetry: { 
         maxNumRetry: 3,
-        retryDelay: 1000,
-        maxRetryDelay: 8000
+        retryDelayMs: 1000,
+        maxRetryDelayMs: 8000
       },
       timeoutRetry: { 
         maxNumRetry: 3,
-        retryDelay: 1000,
-        maxRetryDelay: 8000
+        retryDelayMs: 1000,
+        maxRetryDelayMs: 8000
       },
       maxRetry: 3
     }
