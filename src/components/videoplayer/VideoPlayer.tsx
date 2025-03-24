@@ -1,4 +1,3 @@
-
 import { useRef, useEffect, useState } from "react";
 import Hls from "hls.js";
 import { Card } from "@/components/ui/card";
@@ -7,6 +6,7 @@ import { Slider } from "@/components/ui/slider";
 import { Volume2, VolumeX, Maximize, Pause, Play, SkipBack, SkipForward, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { configureHlsLoader } from "@/utils/hlsLoader";
 
 interface VideoPlayerProps {
   src: string;
@@ -77,37 +77,22 @@ export default function VideoPlayer({
       }
     };
 
-    // Clean up any existing HLS instance
     if (hlsRef.current) {
       hlsRef.current.destroy();
       hlsRef.current = null;
     }
 
-    // Determine if this is an HLS stream
     const isHlsStream = src.includes(".m3u8");
-    // For .ts files, we'll try both HLS and direct playback
     const isTsFile = src.includes(".ts");
     
     const setupHlsStreaming = (sourceUrl: string) => {
       if (Hls.isSupported()) {
-        // Create optimized HLS instance with better error handling
         const hls = new Hls({
           enableWorker: true,
-          lowLatencyMode: isHlsStream,
           debug: false,
-          maxBufferLength: 30,
-          maxMaxBufferLength: 600,
-          maxBufferSize: 60 * 1000 * 1000, // 60MB
-          maxBufferHole: 0.5,
-          highBufferWatchdogPeriod: 2,
-          nudgeOffset: 0.1,
-          nudgeMaxRetry: 5,
-          xhrSetup: (xhr) => {
-            xhr.withCredentials = false;
-            // Set longer timeout for slow connections
-            xhr.timeout = 30000; // 30 seconds
-          },
         });
+        
+        configureHlsLoader(hls);
         
         hlsRef.current = hls;
         
@@ -123,7 +108,7 @@ export default function VideoPlayer({
           console.warn("HLS error:", data);
           
           if (data.fatal) {
-            console.error("Fatal HLS error:", data);
+            console.error("Fatal HLS error:", data.type, data.details);
             
             switch (data.type) {
               case Hls.ErrorTypes.NETWORK_ERROR:
@@ -154,7 +139,6 @@ export default function VideoPlayer({
     const tryDirectPlayback = () => {
       console.log("Attempting direct video playback");
       
-      // For better TS file compatibility, try with explicit MIME type
       if (isTsFile) {
         try {
           video.src = URL.createObjectURL(
@@ -205,7 +189,6 @@ export default function VideoPlayer({
       video.load();
       handleAutoPlay();
       
-      // Listen for errors with direct playback
       const handleError = () => {
         console.error("Native playback error");
         setFormatError(true);
@@ -227,13 +210,11 @@ export default function VideoPlayer({
       });
     };
 
-    // Streaming setup logic based on file type
     if (isHlsStream || isTsFile) {
       if (!setupHlsStreaming(src)) {
         tryDirectPlayback();
       }
     } else {
-      // For other formats, try direct playback
       fallbackToDirectSrc();
     }
 
@@ -243,13 +224,11 @@ export default function VideoPlayer({
       video.removeEventListener("play", handlePlay);
       video.removeEventListener("pause", handlePause);
       
-      // Clean up HLS instance on unmount
       if (hlsRef.current) {
         hlsRef.current.destroy();
         hlsRef.current = null;
       }
       
-      // Clean up any MediaSource URLs
       if (video.src.startsWith('blob:')) {
         URL.revokeObjectURL(video.src);
       }
@@ -435,7 +414,7 @@ export default function VideoPlayer({
                 className="flex items-center gap-1"
                 onClick={openInVlc}
               >
-                <ExternalLink className="h-4 w-4" />
+                <ExternalLink className="h-3 w-3" />
                 Try with VLC
               </Button>
             </div>
