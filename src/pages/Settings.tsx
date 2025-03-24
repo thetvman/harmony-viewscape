@@ -37,7 +37,7 @@ export default function SettingsPage() {
     
     setIsRefreshing(true);
     try {
-      await m3uService.loadChannels(true); // Force reload
+      await m3uService.loadChannels(true); // Now correctly passing true for forceReload
       toast.success("Playlist refreshed successfully");
     } catch (error) {
       console.error("Failed to refresh playlist:", error);

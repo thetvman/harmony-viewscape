@@ -1,3 +1,4 @@
+
 import { toast } from "sonner";
 
 interface Channel {
@@ -53,9 +54,14 @@ class M3uService {
     return !!this.credentials;
   }
   
-  public async loadChannels(): Promise<void> {
+  public async loadChannels(forceReload: boolean = false): Promise<void> {
     if (!this.credentials) {
       throw new Error("M3U URL is required");
+    }
+    
+    // If channels are already loaded and we're not forcing a reload, return early
+    if (!forceReload && Object.keys(this._channels).length > 0) {
+      return;
     }
     
     if (this.isLoading) {
