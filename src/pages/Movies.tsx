@@ -9,6 +9,8 @@ import { Pagination } from "@/components/ui/pagination";
 import VideoPlayer from "@/components/videoplayer/VideoPlayer";
 import { Loader2, Search, Film } from "lucide-react";
 import { toast } from "sonner";
+import MediaCard from "@/components/media/MediaCard";
+import CategorySidebar from "@/components/media/CategorySidebar";
 
 interface Channel {
   id: string;
@@ -67,6 +69,7 @@ const Movies = () => {
     if (selectedCategory) {
       const movieGroups = m3uService.getMoviesByGroup();
       setMovies(movieGroups[selectedCategory] || []);
+      setCurrentPage(1);
     }
   }, [selectedCategory]);
   
@@ -85,11 +88,14 @@ const Movies = () => {
   const handleCategoryClick = (category: string) => {
     setSelectedCategory(category);
     setSelectedMovie(null);
-    setCurrentPage(1);
   };
   
   const handleMovieClick = (movie: Channel) => {
     setSelectedMovie(movie);
+    // Scroll to top on mobile
+    if (window.innerWidth < 768) {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
   };
   
   const handlePageChange = (page: number) => {
@@ -128,41 +134,51 @@ const Movies = () => {
   }
   
   return (
-    <div className="space-y-6">
+    <div className="container py-6">
       <div className="flex flex-col md:flex-row gap-6">
         {/* Left sidebar - Categories */}
-        <div className="w-full md:w-64 flex-shrink-0 space-y-4">
-          <h2 className="text-xl font-semibold flex items-center gap-2">
-            <Film className="h-5 w-5" />
-            <span>Movies</span>
-          </h2>
-          
-          <div className="backdrop-blur-card p-4 h-[70vh] overflow-y-auto">
-            <div className="space-y-1">
-              {categories.map((category) => (
-                <Button
-                  key={category}
-                  variant={selectedCategory === category ? "secondary" : "ghost"}
-                  className="w-full justify-start"
-                  onClick={() => handleCategoryClick(category)}
-                >
-                  {category}
-                </Button>
-              ))}
-            </div>
-          </div>
-        </div>
+        <CategorySidebar
+          categories={categories}
+          selectedCategory={selectedCategory}
+          onCategoryClick={handleCategoryClick}
+          icon={Film}
+          title="Movies"
+        />
         
         {/* Main content area */}
         <div className="flex-1 space-y-4">
           {/* Video player */}
           {selectedMovie && (
-            <VideoPlayer
-              src={selectedMovie.url}
-              title={selectedMovie.name}
-              poster={selectedMovie.logo}
-              className="w-full aspect-video"
-            />
+            <div className="space-y-4">
+              <VideoPlayer
+                src={selectedMovie.url}
+                title={selectedMovie.name}
+                poster={selectedMovie.logo}
+                className="w-full aspect-video rounded-lg overflow-hidden"
+              />
+              <Card>
+                <CardContent className="p-4">
+                  <div className="flex items-start gap-4">
+                    {selectedMovie.logo && (
+                      <img 
+                        src={selectedMovie.logo}
+                        alt={selectedMovie.name}
+                        className="w-20 h-auto rounded object-cover"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).src = "/placeholder.svg";
+                        }}
+                      />
+                    )}
+                    <div>
+                      <h2 className="text-xl font-semibold mb-1">{selectedMovie.name}</h2>
+                      {selectedMovie.group && (
+                        <p className="text-sm text-muted-foreground">{selectedMovie.group}</p>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
           )}
           
           {/* Search and filters */}
@@ -177,39 +193,30 @@ const Movies = () => {
           </div>
           
           {/* Movies grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4">
             {currentMovies.map((movie) => (
-              <Card
+              <MediaCard
                 key={movie.id}
-                className={`hover-scale cursor-pointer media-card overflow-hidden h-full ${
-                  selectedMovie?.id === movie.id
-                    ? "ring-2 ring-primary"
-                    : ""
-                }`}
+                id={movie.id}
+                name={movie.name}
+                logo={movie.logo}
+                isSelected={selectedMovie?.id === movie.id}
+                mediaType="movie"
                 onClick={() => handleMovieClick(movie)}
-              >
-                <div className="relative aspect-[2/3] bg-muted overflow-hidden">
-                  {movie.logo ? (
-                    <img
-                      src={movie.logo}
-                      alt={movie.name}
-                      className="h-full w-full object-cover"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).src = "/placeholder.svg";
-                      }}
-                    />
-                  ) : (
-                    <div className="flex items-center justify-center h-full bg-muted">
-                      <Film className="h-12 w-12 text-muted-foreground" />
-                    </div>
-                  )}
-                </div>
-                <CardContent className="media-card-content">
-                  <h3 className="font-medium line-clamp-1">{movie.name}</h3>
-                </CardContent>
-              </Card>
+              />
             ))}
           </div>
+          
+          {/* Empty state */}
+          {currentMovies.length === 0 && (
+            <div className="text-center py-12">
+              <Film className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+              <h3 className="text-lg font-medium">No movies found</h3>
+              <p className="text-muted-foreground">
+                Try a different category or search term
+              </p>
+            </div>
+          )}
           
           {/* Pagination */}
           {totalPages > 1 && (

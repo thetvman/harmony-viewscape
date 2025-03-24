@@ -43,23 +43,47 @@ export default function LiveTvPage() {
   
   return (
     <div className="container py-4">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="md:col-span-1">
+      <div className="flex flex-col md:flex-row gap-6">
+        <div className="md:w-1/3 lg:w-1/4">
           <ChannelList 
             onSelectChannel={handleSelectChannel}
             selectedChannelId={selectedChannel?.id}
           />
         </div>
         
-        <div className="md:col-span-2">
+        <div className="md:w-2/3 lg:w-3/4">
           {selectedChannel ? (
-            <VideoPlayer 
-              src={selectedChannel.url}
-              poster={selectedChannel.logo}
-              title={selectedChannel.name}
-              autoPlay={true}
-              controls={true}
-            />
+            <div className="space-y-4">
+              <VideoPlayer 
+                src={selectedChannel.url}
+                poster={selectedChannel.logo}
+                title={selectedChannel.name}
+                autoPlay={true}
+                controls={true}
+              />
+              <Card>
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-3">
+                    {selectedChannel.logo && (
+                      <img 
+                        src={selectedChannel.logo} 
+                        alt={selectedChannel.name}
+                        className="w-12 h-12 rounded object-contain"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).src = '/placeholder.svg';
+                        }}
+                      />
+                    )}
+                    <div>
+                      <h2 className="text-xl font-semibold">{selectedChannel.name}</h2>
+                      {selectedChannel.group && (
+                        <p className="text-sm text-muted-foreground">{selectedChannel.group}</p>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
           ) : (
             <Card className="aspect-video flex items-center justify-center">
               <CardContent className="p-6 text-center">

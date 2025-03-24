@@ -7,8 +7,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Pagination } from "@/components/ui/pagination";
 import VideoPlayer from "@/components/videoplayer/VideoPlayer";
-import { Loader2, Search, List } from "lucide-react";
+import { Loader2, Search, List, Play } from "lucide-react";
 import { toast } from "sonner";
+import MediaCard from "@/components/media/MediaCard";
+import CategorySidebar from "@/components/media/CategorySidebar";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface Channel {
   id: string;
@@ -18,18 +21,81 @@ interface Channel {
   url: string;
 }
 
+// Helper to extract episode information from title
+const extractEpisodeInfo = (title: string) => {
+  // Match patterns like "S01E01" or "1x01" or "Season 1 Episode 1"
+  const seasonEpisodeRegex = /[Ss](\d+)[Ee](\d+)|(\d+)[xX](\d+)|[Ss]eason\s*(\d+)\s*[Ee]pisode\s*(\d+)/;
+  const match = title.match(seasonEpisodeRegex);
+  
+  if (match) {
+    const season = match[1] || match[3] || match[5] || '0';
+    const episode = match[2] || match[4] || match[6] || '0';
+    return { 
+      season: parseInt(season, 10), 
+      episode: parseInt(episode, 10) 
+    };
+  }
+  
+  return null;
+}
+
+// Group episodes by series name, removing season/episode info
+const groupSeriesEpisodes = (episodes: Channel[]) => {
+  const seriesGroups: Record<string, Channel[]> = {};
+  
+  episodes.forEach(episode => {
+    // Try to extract base series name by removing season/episode info
+    let seriesName = episode.name;
+    
+    // Remove common patterns like S01E01, 1x01, etc.
+    seriesName = seriesName.replace(/\s*[Ss]\d+[Ee]\d+|\s*\d+[xX]\d+|\s*[Ss]eason\s*\d+\s*[Ee]pisode\s*\d+/g, '');
+    
+    // Remove trailing dashes, pipes, colons with optional spaces
+    seriesName = seriesName.replace(/[\s-|:]+$/, '').trim();
+    
+    if (!seriesGroups[seriesName]) {
+      seriesGroups[seriesName] = [];
+    }
+    
+    seriesGroups[seriesName].push(episode);
+  });
+  
+  // Sort episodes within each series
+  Object.keys(seriesGroups).forEach(series => {
+    seriesGroups[series].sort((a, b) => {
+      const infoA = extractEpisodeInfo(a.name);
+      const infoB = extractEpisodeInfo(b.name);
+      
+      if (infoA && infoB) {
+        // Sort by season, then episode
+        if (infoA.season !== infoB.season) {
+          return infoA.season - infoB.season;
+        }
+        return infoA.episode - infoB.episode;
+      }
+      
+      // Fallback to name sort if episode info can't be extracted
+      return a.name.localeCompare(b.name);
+    });
+  });
+  
+  return seriesGroups;
+};
+
 const Series = () => {
   const navigate = useNavigate();
   const [categories, setCategories] = useState<string[]>([]);
-  const [series, setSeries] = useState<Channel[]>([]);
+  const [allSeries, setAllSeries] = useState<Channel[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>("");
-  const [selectedSeries, setSelectedSeries] = useState<Channel | null>(null);
+  const [selectedSeries, setSelectedSeries] = useState<string | null>(null);
+  const [episodes, setEpisodes] = useState<Channel[]>([]);
+  const [selectedEpisode, setSelectedEpisode] = useState<Channel | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 12;
+  const itemsPerPage = 15;
   
   useEffect(() => {
     const loadSeries = async () => {
@@ -50,7 +116,7 @@ const Series = () => {
         // Select the first category by default
         if (categoryNames.length > 0) {
           setSelectedCategory(categoryNames[0]);
-          setSeries(seriesGroups[categoryNames[0]]);
+          setAllSeries(seriesGroups[categoryNames[0]]);
         }
       } catch (error) {
         console.error("Failed to load series:", error);
@@ -66,18 +132,28 @@ const Series = () => {
   useEffect(() => {
     if (selectedCategory) {
       const seriesGroups = m3uService.getSeriesByGroup();
-      setSeries(seriesGroups[selectedCategory] || []);
+      setAllSeries(seriesGroups[selectedCategory] || []);
+      setSelectedSeries(null);
+      setEpisodes([]);
+      setSelectedEpisode(null);
+      setCurrentPage(1);
     }
   }, [selectedCategory]);
   
-  // Filter series based on search query
-  const filteredSeries = series.filter(item => 
-    item.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Group series when allSeries changes or search query changes
+  const seriesGroups = React.useMemo(() => {
+    const filtered = allSeries.filter(series => 
+      series.name.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+    return groupSeriesEpisodes(filtered);
+  }, [allSeries, searchQuery]);
   
-  // Calculate pagination
-  const totalPages = Math.ceil(filteredSeries.length / itemsPerPage);
-  const currentSeries = filteredSeries.slice(
+  // Get unique series names for display
+  const seriesNames = Object.keys(seriesGroups).sort();
+  
+  // Calculate pagination for series list
+  const totalPages = Math.ceil(seriesNames.length / itemsPerPage);
+  const currentSeriesNames = seriesNames.slice(
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage
   );
@@ -85,11 +161,24 @@ const Series = () => {
   const handleCategoryClick = (category: string) => {
     setSelectedCategory(category);
     setSelectedSeries(null);
+    setEpisodes([]);
+    setSelectedEpisode(null);
     setCurrentPage(1);
   };
   
-  const handleSeriesClick = (series: Channel) => {
-    setSelectedSeries(series);
+  const handleSeriesClick = (seriesName: string) => {
+    setSelectedSeries(seriesName);
+    setEpisodes(seriesGroups[seriesName] || []);
+    setSelectedEpisode(seriesGroups[seriesName]?.[0] || null);
+    
+    // Scroll to top on mobile
+    if (window.innerWidth < 768) {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+  
+  const handleEpisodeClick = (episode: Channel) => {
+    setSelectedEpisode(episode);
   };
   
   const handlePageChange = (page: number) => {
@@ -128,97 +217,130 @@ const Series = () => {
   }
   
   return (
-    <div className="space-y-6">
+    <div className="container py-6">
       <div className="flex flex-col md:flex-row gap-6">
         {/* Left sidebar - Categories */}
-        <div className="w-full md:w-64 flex-shrink-0 space-y-4">
-          <h2 className="text-xl font-semibold flex items-center gap-2">
-            <List className="h-5 w-5" />
-            <span>Series</span>
-          </h2>
-          
-          <div className="backdrop-blur-card p-4 h-[70vh] overflow-y-auto">
-            <div className="space-y-1">
-              {categories.map((category) => (
-                <Button
-                  key={category}
-                  variant={selectedCategory === category ? "secondary" : "ghost"}
-                  className="w-full justify-start"
-                  onClick={() => handleCategoryClick(category)}
-                >
-                  {category}
-                </Button>
-              ))}
-            </div>
-          </div>
-        </div>
+        <CategorySidebar
+          categories={categories}
+          selectedCategory={selectedCategory}
+          onCategoryClick={handleCategoryClick}
+          icon={List}
+          title="Series"
+        />
         
         {/* Main content area */}
         <div className="flex-1 space-y-4">
-          {/* Video player */}
-          {selectedSeries && (
-            <VideoPlayer
-              src={selectedSeries.url}
-              title={selectedSeries.name}
-              poster={selectedSeries.logo}
-              className="w-full aspect-video"
-            />
-          )}
-          
-          {/* Search and filters */}
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search series..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10"
-            />
-          </div>
-          
-          {/* Series grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {currentSeries.map((item) => (
-              <Card
-                key={item.id}
-                className={`hover-scale cursor-pointer media-card overflow-hidden h-full ${
-                  selectedSeries?.id === item.id
-                    ? "ring-2 ring-primary"
-                    : ""
-                }`}
-                onClick={() => handleSeriesClick(item)}
-              >
-                <div className="relative aspect-[2/3] bg-muted overflow-hidden">
-                  {item.logo ? (
-                    <img
-                      src={item.logo}
-                      alt={item.name}
-                      className="h-full w-full object-cover"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).src = "/placeholder.svg";
-                      }}
-                    />
-                  ) : (
-                    <div className="flex items-center justify-center h-full bg-muted">
-                      <List className="h-12 w-12 text-muted-foreground" />
+          {/* Video player and episode selector */}
+          {selectedSeries && selectedEpisode && (
+            <div className="space-y-4">
+              <VideoPlayer
+                src={selectedEpisode.url}
+                title={selectedEpisode.name}
+                poster={selectedEpisode.logo}
+                className="w-full aspect-video rounded-lg overflow-hidden"
+              />
+              
+              <Card>
+                <CardContent className="p-4">
+                  <div className="flex flex-col space-y-3">
+                    <div className="flex items-start gap-4">
+                      {selectedEpisode.logo && (
+                        <img 
+                          src={selectedEpisode.logo}
+                          alt={selectedEpisode.name}
+                          className="w-20 h-auto rounded object-cover"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).src = "/placeholder.svg";
+                          }}
+                        />
+                      )}
+                      <div>
+                        <h2 className="text-xl font-semibold mb-1">{selectedSeries}</h2>
+                        <p className="text-sm">{selectedEpisode.name}</p>
+                        {selectedEpisode.group && (
+                          <p className="text-sm text-muted-foreground">{selectedEpisode.group}</p>
+                        )}
+                      </div>
                     </div>
-                  )}
-                </div>
-                <CardContent className="media-card-content">
-                  <h3 className="font-medium line-clamp-1">{item.name}</h3>
+                    
+                    <h3 className="text-md font-medium mt-2">Episodes</h3>
+                    <ScrollArea className="h-48">
+                      <div className="space-y-1 pr-3">
+                        {episodes.map((episode) => (
+                          <Button
+                            key={episode.id}
+                            variant={selectedEpisode.id === episode.id ? "secondary" : "ghost"}
+                            className="w-full justify-start text-left h-auto py-2"
+                            onClick={() => handleEpisodeClick(episode)}
+                          >
+                            <div className="flex items-center gap-2">
+                              <Play className="h-4 w-4 flex-shrink-0" />
+                              <span className="truncate">{episode.name}</span>
+                            </div>
+                          </Button>
+                        ))}
+                      </div>
+                    </ScrollArea>
+                  </div>
                 </CardContent>
               </Card>
-            ))}
-          </div>
-          
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <Pagination
-              currentPage={currentPage}
-              totalPages={totalPages}
-              onPageChange={handlePageChange}
-            />
+            </div>
           )}
+          
+          {/* Series grid */}
+          <div className="space-y-4">
+            {/* Search input */}
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search series..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+            
+            {/* Series selection */}
+            {!selectedSeries && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                {currentSeriesNames.map((seriesName) => {
+                  // Use the first episode's image as the series image
+                  const firstEpisode = seriesGroups[seriesName]?.[0];
+                  return (
+                    <MediaCard
+                      key={seriesName}
+                      id={seriesName}
+                      name={seriesName}
+                      logo={firstEpisode?.logo}
+                      isSelected={selectedSeries === seriesName}
+                      mediaType="series"
+                      onClick={() => handleSeriesClick(seriesName)}
+                    />
+                  );
+                })}
+              </div>
+            )}
+            
+            {/* Empty state */}
+            {currentSeriesNames.length === 0 && !selectedSeries && (
+              <div className="text-center py-12">
+                <List className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+                <h3 className="text-lg font-medium">No series found</h3>
+                <p className="text-muted-foreground">
+                  Try a different category or search term
+                </p>
+              </div>
+            )}
+            
+            {/* Pagination */}
+            {!selectedSeries && totalPages > 1 && (
+              <Pagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onPageChange={handlePageChange}
+              />
+            )}
+          </div>
         </div>
       </div>
     </div>
