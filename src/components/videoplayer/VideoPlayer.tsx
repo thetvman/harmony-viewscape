@@ -1,3 +1,4 @@
+
 import { useRef, useEffect, useState } from "react";
 import Hls from "hls.js";
 import { Card } from "@/components/ui/card";
@@ -35,6 +36,7 @@ export default function VideoPlayer({
   const [showControls, setShowControls] = useState(true);
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [autoplayFailed, setAutoplayFailed] = useState(false);
+  const [formatError, setFormatError] = useState(false);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -50,6 +52,7 @@ export default function VideoPlayer({
 
     const handlePlay = () => {
       setIsPlaying(true);
+      setFormatError(false);
     };
 
     const handlePause = () => {
@@ -80,17 +83,29 @@ export default function VideoPlayer({
       hlsRef.current = null;
     }
 
+    // Determine if this is an HLS stream
+    const isHlsStream = src.includes(".m3u8");
+    // For .ts files, we'll try both HLS and direct playback
+    const isTsFile = src.includes(".ts");
+    
     const setupHlsStreaming = (sourceUrl: string) => {
       if (Hls.isSupported()) {
-        // Create new HLS instance with optimized configuration
+        // Create optimized HLS instance with better error handling
         const hls = new Hls({
           enableWorker: true,
-          lowLatencyMode: sourceUrl.includes(".m3u8"),
+          lowLatencyMode: isHlsStream,
           debug: false,
-          // Direct loading without CORS proxy
-          xhrSetup: (xhr, url) => {
-            // Add custom headers if needed
-            xhr.withCredentials = false; // Important for CORS
+          maxBufferLength: 30,
+          maxMaxBufferLength: 600,
+          maxBufferSize: 60 * 1000 * 1000, // 60MB
+          maxBufferHole: 0.5,
+          highBufferWatchdogPeriod: 2,
+          nudgeOffset: 0.1,
+          nudgeMaxRetry: 5,
+          xhrSetup: (xhr) => {
+            xhr.withCredentials = false;
+            // Set longer timeout for slow connections
+            xhr.timeout = 30000; // 30 seconds
           },
         });
         
@@ -115,13 +130,14 @@ export default function VideoPlayer({
                 console.log("Network error, attempting recovery...");
                 hls.startLoad();
                 break;
+                
               case Hls.ErrorTypes.MEDIA_ERROR:
                 console.log("Media error, attempting recovery...");
                 hls.recoverMediaError();
                 break;
+                
               default:
                 console.error("Unrecoverable HLS error");
-                // Fall back to direct playback as last resort
                 tryDirectPlayback();
                 break;
             }
@@ -137,42 +153,88 @@ export default function VideoPlayer({
 
     const tryDirectPlayback = () => {
       console.log("Attempting direct video playback");
+      
+      // For better TS file compatibility, try with explicit MIME type
+      if (isTsFile) {
+        try {
+          video.src = URL.createObjectURL(
+            new MediaSource()
+          );
+          const mediaSource = new MediaSource();
+          video.src = URL.createObjectURL(mediaSource);
+          mediaSource.addEventListener('sourceopen', async () => {
+            try {
+              const response = await fetch(src);
+              if (!response.ok) throw new Error('Failed to fetch TS file');
+              
+              const arrayBuffer = await response.arrayBuffer();
+              let mimeType = 'video/mp2t; codecs="avc1.42E01E, mp4a.40.2"';
+              
+              try {
+                const sourceBuffer = mediaSource.addSourceBuffer(mimeType);
+                sourceBuffer.addEventListener('updateend', () => {
+                  if (!sourceBuffer.updating && mediaSource.readyState === 'open') {
+                    mediaSource.endOfStream();
+                    video.play().catch(err => {
+                      console.error("Play failed after MSE setup:", err);
+                      showFormatErrorMessage();
+                    });
+                  }
+                });
+                sourceBuffer.appendBuffer(arrayBuffer);
+              } catch (err) {
+                console.error("Media Source Extensions error:", err);
+                fallbackToDirectSrc();
+              }
+            } catch (err) {
+              console.error("Failed to fetch or process TS file:", err);
+              fallbackToDirectSrc();
+            }
+          });
+        } catch (err) {
+          console.error("MSE not supported, trying direct src:", err);
+          fallbackToDirectSrc();
+        }
+      } else {
+        fallbackToDirectSrc();
+      }
+    };
+    
+    const fallbackToDirectSrc = () => {
       video.src = src;
       video.load();
       handleAutoPlay();
       
-      // Add error handler for native playback
+      // Listen for errors with direct playback
       const handleError = () => {
         console.error("Native playback error");
-        showVlcOption();
+        setFormatError(true);
+        showFormatErrorMessage();
       };
       
       video.addEventListener("error", handleError);
-      
-      return () => {
-        video.removeEventListener("error", handleError);
-      };
+      return () => video.removeEventListener("error", handleError);
     };
 
-    const showVlcOption = () => {
+    const showFormatErrorMessage = () => {
       toast.error("Format not supported", {
-        description: "Your browser doesn't support this video format. Try using VLC player instead.",
+        description: "This stream format isn't compatible with your browser. Try an external player like VLC.",
         action: {
-          label: "Use VLC",
+          label: "Open in VLC",
           onClick: () => openInVlc(),
         },
         duration: 10000,
       });
     };
 
-    // Try HLS.js first if it's an HLS stream
-    if (src.includes(".m3u8") || src.includes(".ts")) {
-      if (setupHlsStreaming(src) === false) {
+    // Streaming setup logic based on file type
+    if (isHlsStream || isTsFile) {
+      if (!setupHlsStreaming(src)) {
         tryDirectPlayback();
       }
     } else {
       // For other formats, try direct playback
-      tryDirectPlayback();
+      fallbackToDirectSrc();
     }
 
     return () => {
@@ -185,6 +247,11 @@ export default function VideoPlayer({
       if (hlsRef.current) {
         hlsRef.current.destroy();
         hlsRef.current = null;
+      }
+      
+      // Clean up any MediaSource URLs
+      if (video.src.startsWith('blob:')) {
+        URL.revokeObjectURL(video.src);
       }
     };
   }, [src, autoPlay]);
@@ -345,12 +412,12 @@ export default function VideoPlayer({
         onClick={togglePlay}
       />
       
-      {autoplayFailed && !isPlaying && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/50" onClick={togglePlay}>
+      {(autoplayFailed && !isPlaying) || formatError ? (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/70">
           <Button 
             variant="outline" 
             size="lg" 
-            className="rounded-full w-16 h-16 flex items-center justify-center"
+            className="rounded-full w-16 h-16 flex items-center justify-center mb-4"
             onClick={(e) => {
               e.stopPropagation();
               togglePlay();
@@ -358,8 +425,23 @@ export default function VideoPlayer({
           >
             <Play className="h-8 w-8" />
           </Button>
+          
+          {formatError && (
+            <div className="text-center px-4">
+              <p className="text-white mb-2">Format may not be supported by your browser</p>
+              <Button
+                variant="secondary"
+                size="sm"
+                className="flex items-center gap-1"
+                onClick={openInVlc}
+              >
+                <ExternalLink className="h-4 w-4" />
+                Try with VLC
+              </Button>
+            </div>
+          )}
         </div>
-      )}
+      ) : null}
       
       {controls && showControls && (
         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent flex flex-col justify-end p-4 transition-opacity duration-300">
@@ -455,14 +537,28 @@ export default function VideoPlayer({
               </div>
             </div>
             
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={toggleFullscreen}
-              className="h-8 w-8 text-white hover:bg-white/20"
-            >
-              <Maximize className="h-5 w-5" />
-            </Button>
+            <div className="flex items-center gap-2">
+              {formatError && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={openInVlc}
+                  className="text-white hover:bg-white/20 flex items-center gap-1 text-xs"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  VLC
+                </Button>
+              )}
+              
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={toggleFullscreen}
+                className="h-8 w-8 text-white hover:bg-white/20"
+              >
+                <Maximize className="h-5 w-5" />
+              </Button>
+            </div>
           </div>
         </div>
       )}

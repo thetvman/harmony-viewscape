@@ -1,4 +1,3 @@
-
 import { toast } from "sonner";
 import {
   XtreamCredentials,
@@ -79,15 +78,11 @@ class XtreamService {
       domain = domain.slice(0, -1);
     }
     
-    switch (type) {
-      case 'live':
-        return `${domain}/${username}/${password}/${streamId}.${extension}`;
-      case 'movie':
-        return `${domain}/${username}/${password}/${streamId}.${extension}`;
-      case 'series':
-        return `${domain}/${username}/${password}/${streamId}.${extension}`;
-      default:
-        throw new Error("Invalid stream type");
+    // Prefer m3u8 format for better browser compatibility when available
+    if (type === 'live') {
+      return `${domain}/${username}/${password}/${streamId}.${extension}`;
+    } else {
+      return `${domain}/${username}/${password}/${streamId}.${extension}`;
     }
   }
 
