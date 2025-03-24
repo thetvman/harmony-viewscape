@@ -78,17 +78,16 @@ class XtreamService {
       domain = domain.slice(0, -1);
     }
     
-    // Always use the provided extension - don't try to use m3u8 unless specifically requested
+    // For live streams, ALWAYS use TS extension
     if (type === 'live') {
-      return `${domain}/${username}/${password}/${streamId}.${extension}`;
+      return `${domain}/${username}/${password}/${streamId}.ts`;
     } else if (type === 'movie') {
       return `${domain}/${username}/${password}/${type}/${streamId}.${extension}`;
     } else {
       return `${domain}/${username}/${password}/${type}/${streamId}.${extension}`;
     }
   }
-  
-  // Remove the m3u8 auto-detection - always respect the requested format
+
   private shouldUseM3u8(streamId: number, type: 'live' | 'movie' | 'series'): boolean {
     // Only return true if explicitly asked for m3u8
     return false;

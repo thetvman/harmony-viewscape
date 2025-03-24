@@ -1,3 +1,4 @@
+
 import { useRef, useEffect, useState } from "react";
 import Hls from "hls.js";
 import { Card } from "@/components/ui/card";
@@ -6,7 +7,7 @@ import { Slider } from "@/components/ui/slider";
 import { Volume2, VolumeX, Maximize, Pause, Play, SkipBack, SkipForward, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { configureHlsLoader } from "@/utils/hlsLoader";
+import { configureHlsLoader, isTsFile, createTsSourceBuffer } from "@/utils/hlsLoader";
 
 interface VideoPlayerProps {
   src: string;
@@ -28,6 +29,7 @@ export default function VideoPlayer({
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const hlsRef = useRef<Hls | null>(null);
+  const mediaSourceRef = useRef<MediaSource | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState(1);
@@ -37,6 +39,7 @@ export default function VideoPlayer({
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [autoplayFailed, setAutoplayFailed] = useState(false);
   const [formatError, setFormatError] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -44,6 +47,7 @@ export default function VideoPlayer({
 
     const handleLoadedMetadata = () => {
       setDuration(video.duration);
+      setIsLoading(false);
     };
 
     const handleTimeUpdate = () => {
@@ -58,11 +62,24 @@ export default function VideoPlayer({
     const handlePause = () => {
       setIsPlaying(false);
     };
+    
+    const handleError = (e: Event) => {
+      console.error("Video error:", video.error);
+      setIsLoading(false);
+      if (isTsFile(src) && !formatError) {
+        console.log("TS playback failed, trying MSE approach");
+        tryTsWithMediaSource();
+      } else {
+        setFormatError(true);
+        showFormatErrorMessage();
+      }
+    };
 
     video.addEventListener("loadedmetadata", handleLoadedMetadata);
     video.addEventListener("timeupdate", handleTimeUpdate);
     video.addEventListener("play", handlePlay);
     video.addEventListener("pause", handlePause);
+    video.addEventListener("error", handleError);
 
     const handleAutoPlay = () => {
       if (autoPlay) {
@@ -77,13 +94,29 @@ export default function VideoPlayer({
       }
     };
 
+    // Clean up previous instances
     if (hlsRef.current) {
       hlsRef.current.destroy();
       hlsRef.current = null;
     }
+    
+    if (video.src.startsWith('blob:')) {
+      URL.revokeObjectURL(video.src);
+    }
+    
+    if (mediaSourceRef.current) {
+      if (mediaSourceRef.current.readyState === 'open') {
+        mediaSourceRef.current.endOfStream();
+      }
+      mediaSourceRef.current = null;
+    }
 
     const isHlsStream = src.includes(".m3u8");
-    const isTsFile = src.includes(".ts");
+    const tsSrc = isTsFile(src);
+    
+    // Set loading state while we determine playback method
+    setIsLoading(true);
+    setFormatError(false);
     
     const setupHlsStreaming = (sourceUrl: string) => {
       if (Hls.isSupported()) {
@@ -93,16 +126,7 @@ export default function VideoPlayer({
         });
         
         configureHlsLoader(hls);
-        
         hlsRef.current = hls;
-        
-        if (isTsFile && !isHlsStream) {
-          console.log("Loading TS file directly:", sourceUrl);
-          video.src = sourceUrl;
-          video.load();
-          handleAutoPlay();
-          return true;
-        }
         
         console.log("Loading with HLS.js:", sourceUrl);
         hls.loadSource(sourceUrl);
@@ -132,7 +156,11 @@ export default function VideoPlayer({
                 
               default:
                 console.error("Unrecoverable HLS error");
-                tryDirectPlayback();
+                if (tsSrc) {
+                  tryTsWithMediaSource();
+                } else {
+                  tryDirectPlayback();
+                }
                 break;
             }
           }
@@ -145,52 +173,83 @@ export default function VideoPlayer({
       return false;
     };
 
+    const tryTsWithMediaSource = async () => {
+      if (!window.MediaSource) {
+        console.error("MediaSource not supported in this browser");
+        tryDirectPlayback();
+        return;
+      }
+      
+      try {
+        // Create a new MediaSource
+        const mediaSource = new MediaSource();
+        mediaSourceRef.current = mediaSource;
+        video.src = URL.createObjectURL(mediaSource);
+        
+        mediaSource.addEventListener('sourceopen', async () => {
+          try {
+            console.log("MediaSource opened, fetching TS data");
+            const response = await fetch(src);
+            
+            if (!response.ok) {
+              throw new Error(`Failed to fetch TS file: ${response.status} ${response.statusText}`);
+            }
+            
+            // Get the data as an ArrayBuffer
+            const arrayBuffer = await response.arrayBuffer();
+            console.log(`Downloaded ${arrayBuffer.byteLength} bytes of TS data`);
+            
+            // Create a source buffer with appropriate MIME type
+            const sourceBuffer = createTsSourceBuffer(mediaSource);
+            
+            if (!sourceBuffer) {
+              throw new Error("Failed to create source buffer");
+            }
+            
+            // Add the data to the source buffer
+            sourceBuffer.addEventListener('updateend', () => {
+              if (!sourceBuffer.updating && mediaSource.readyState === 'open') {
+                try {
+                  mediaSource.endOfStream();
+                  console.log("TS file loaded successfully with MSE");
+                  handleAutoPlay();
+                } catch (err) {
+                  console.error("Error ending stream:", err);
+                }
+              }
+            });
+            
+            // Handle errors
+            sourceBuffer.addEventListener('error', (err) => {
+              console.error("Source buffer error:", err);
+              setFormatError(true);
+              showFormatErrorMessage();
+            });
+            
+            sourceBuffer.appendBuffer(arrayBuffer);
+          } catch (err) {
+            console.error("MediaSource processing error:", err);
+            tryDirectPlayback();
+          }
+        });
+        
+        // Handle MediaSource errors
+        mediaSource.addEventListener('error', (err) => {
+          console.error("MediaSource error:", err);
+          tryDirectPlayback();
+        });
+        
+        return true;
+      } catch (err) {
+        console.error("MediaSource setup error:", err);
+        tryDirectPlayback();
+        return false;
+      }
+    };
+
     const tryDirectPlayback = () => {
       console.log("Attempting direct video playback");
-      
-      if (isTsFile) {
-        try {
-          video.src = URL.createObjectURL(
-            new MediaSource()
-          );
-          const mediaSource = new MediaSource();
-          video.src = URL.createObjectURL(mediaSource);
-          mediaSource.addEventListener('sourceopen', async () => {
-            try {
-              const response = await fetch(src);
-              if (!response.ok) throw new Error('Failed to fetch TS file');
-              
-              const arrayBuffer = await response.arrayBuffer();
-              let mimeType = 'video/mp2t; codecs="avc1.42E01E, mp4a.40.2"';
-              
-              try {
-                const sourceBuffer = mediaSource.addSourceBuffer(mimeType);
-                sourceBuffer.addEventListener('updateend', () => {
-                  if (!sourceBuffer.updating && mediaSource.readyState === 'open') {
-                    mediaSource.endOfStream();
-                    video.play().catch(err => {
-                      console.error("Play failed after MSE setup:", err);
-                      showFormatErrorMessage();
-                    });
-                  }
-                });
-                sourceBuffer.appendBuffer(arrayBuffer);
-              } catch (err) {
-                console.error("Media Source Extensions error:", err);
-                fallbackToDirectSrc();
-              }
-            } catch (err) {
-              console.error("Failed to fetch or process TS file:", err);
-              fallbackToDirectSrc();
-            }
-          });
-        } catch (err) {
-          console.error("MSE not supported, trying direct src:", err);
-          fallbackToDirectSrc();
-        }
-      } else {
-        fallbackToDirectSrc();
-      }
+      fallbackToDirectSrc();
     };
     
     const fallbackToDirectSrc = () => {
@@ -198,14 +257,14 @@ export default function VideoPlayer({
       video.load();
       handleAutoPlay();
       
-      const handleError = () => {
+      const directPlaybackErrorHandler = () => {
         console.error("Native playback error");
         setFormatError(true);
         showFormatErrorMessage();
+        video.removeEventListener("error", directPlaybackErrorHandler);
       };
       
-      video.addEventListener("error", handleError);
-      return () => video.removeEventListener("error", handleError);
+      video.addEventListener("error", directPlaybackErrorHandler);
     };
 
     const showFormatErrorMessage = () => {
@@ -223,11 +282,9 @@ export default function VideoPlayer({
       if (!setupHlsStreaming(src)) {
         tryDirectPlayback();
       }
-    } else if (isTsFile) {
-      console.log("Loading TS file directly:", src);
-      video.src = src;
-      video.load();
-      handleAutoPlay();
+    } else if (tsSrc) {
+      console.log("Starting TS file playback:", src);
+      tryTsWithMediaSource();
     } else {
       fallbackToDirectSrc();
     }
@@ -237,6 +294,7 @@ export default function VideoPlayer({
       video.removeEventListener("timeupdate", handleTimeUpdate);
       video.removeEventListener("play", handlePlay);
       video.removeEventListener("pause", handlePause);
+      video.removeEventListener("error", handleError);
       
       if (hlsRef.current) {
         hlsRef.current.destroy();
@@ -245,6 +303,14 @@ export default function VideoPlayer({
       
       if (video.src.startsWith('blob:')) {
         URL.revokeObjectURL(video.src);
+      }
+      
+      if (mediaSourceRef.current && mediaSourceRef.current.readyState === 'open') {
+        try {
+          mediaSourceRef.current.endOfStream();
+        } catch (err) {
+          console.error("Error ending MediaSource stream:", err);
+        }
       }
     };
   }, [src, autoPlay]);
@@ -405,23 +471,31 @@ export default function VideoPlayer({
         onClick={togglePlay}
       />
       
+      {isLoading && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-white"></div>
+        </div>
+      )}
+      
       {(autoplayFailed && !isPlaying) || formatError ? (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/70">
-          <Button 
-            variant="outline" 
-            size="lg" 
-            className="rounded-full w-16 h-16 flex items-center justify-center mb-4"
-            onClick={(e) => {
-              e.stopPropagation();
-              togglePlay();
-            }}
-          >
-            <Play className="h-8 w-8" />
-          </Button>
+          {!formatError && (
+            <Button 
+              variant="outline" 
+              size="lg" 
+              className="rounded-full w-16 h-16 flex items-center justify-center mb-4"
+              onClick={(e) => {
+                e.stopPropagation();
+                togglePlay();
+              }}
+            >
+              <Play className="h-8 w-8" />
+            </Button>
+          )}
           
           {formatError && (
             <div className="text-center px-4">
-              <p className="text-white mb-2">Format may not be supported by your browser</p>
+              <p className="text-white mb-2">Format not supported by your browser</p>
               <Button
                 variant="secondary"
                 size="sm"

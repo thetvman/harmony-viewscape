@@ -24,8 +24,11 @@ export function configureHlsLoader(hls: Hls): void {
       const filename = url.split('/').pop();
       
       if (filename && filename.includes('.')) {
-        // Try with .ts extension if server returns 404 for .m3u8
-        console.log(`URL might need .ts extension: ${url}`);
+        // Replace .m3u8 with .ts if needed
+        const tsUrl = url.replace('.m3u8', '.ts');
+        console.log(`Trying TS URL instead: ${tsUrl}`);
+        xhr.open('GET', tsUrl, true);
+        return;
       }
     }
   };
@@ -48,4 +51,45 @@ export function configureHlsLoader(hls: Hls): void {
   hls.config.highBufferWatchdogPeriod = 2;
   hls.config.nudgeOffset = 0.1;
   hls.config.nudgeMaxRetry = 5;
+  
+  // Add enhanced error handling
+  hls.config.enableWorker = true;
+  hls.config.fragLoadPolicy = {
+    default: {
+      maxRetry: 3,
+      retryDelay: 1000,
+      maxRetryDelay: 8000,
+      timeout: 20000,
+    }
+  };
+}
+
+export function isTsFile(url: string): boolean {
+  return url.endsWith('.ts') || url.includes('.ts?');
+}
+
+export function createTsSourceBuffer(mediaSource: MediaSource): SourceBuffer | null {
+  try {
+    // Try different MIME types for TS files
+    const mimeTypes = [
+      'video/mp2t; codecs="avc1.42E01E, mp4a.40.2"',
+      'video/mp2t',
+      'video/mpeg',
+      'video/mpeg2',
+      'video/mp4; codecs="avc1.42E01E, mp4a.40.2"'
+    ];
+    
+    for (const mimeType of mimeTypes) {
+      if (MediaSource.isTypeSupported(mimeType)) {
+        console.log(`Creating source buffer with MIME type: ${mimeType}`);
+        return mediaSource.addSourceBuffer(mimeType);
+      }
+    }
+    
+    console.error("No supported MIME type found for TS file");
+    return null;
+  } catch (error) {
+    console.error("Error creating source buffer:", error);
+    return null;
+  }
 }
