@@ -9,7 +9,7 @@ import { useNavigate } from "react-router-dom";
 import { Play, Settings2, LogOut } from "lucide-react";
 
 export default function SettingsPage() {
-  const [playlistInfo, setPlaylistInfo] = useState<{ url: string; name?: string } | null>(null);
+  const [playlistInfo, setPlaylistInfo] = useState<{ url: string; } | null>(null);
   const [activeTab, setActiveTab] = useState("general");
   const navigate = useNavigate();
   
@@ -19,11 +19,14 @@ export default function SettingsPage() {
       return;
     }
     
-    setPlaylistInfo(m3uService.getPlaylist());
+    const credentials = m3uService.getCredentials();
+    if (credentials) {
+      setPlaylistInfo(credentials);
+    }
   }, [navigate]);
   
   const handleDisconnect = () => {
-    m3uService.clearPlaylist();
+    m3uService.clearCredentials();
     toast.success("Disconnected from playlist");
     navigate("/");
   };
@@ -71,15 +74,6 @@ export default function SettingsPage() {
                   <p className="mb-2 break-all bg-muted p-2 rounded text-sm">
                     {playlistInfo.url}
                   </p>
-                  
-                  {playlistInfo.name && (
-                    <>
-                      <p className="text-muted-foreground mb-1">Playlist Name:</p>
-                      <p className="mb-2 bg-muted p-2 rounded text-sm">
-                        {playlistInfo.name}
-                      </p>
-                    </>
-                  )}
                 </div>
                 
                 <div className="pt-4">

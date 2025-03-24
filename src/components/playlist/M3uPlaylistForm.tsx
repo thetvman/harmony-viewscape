@@ -34,9 +34,8 @@ export default function M3uPlaylistForm() {
         toast.warning("URL doesn't seem to be an M3U playlist. Make sure it's a valid M3U playlist URL.");
       }
       
-      m3uService.setPlaylist({
-        url: playlistUrl.trim(),
-        name: playlistName.trim() || "My Playlist"
+      m3uService.setCredentials({
+        url: playlistUrl.trim()
       });
       
       // Try to load channels to verify the playlist works
@@ -53,7 +52,7 @@ export default function M3uPlaylistForm() {
         message = error.message;
       }
       toast.error(message);
-      m3uService.clearPlaylist();
+      m3uService.clearCredentials();
     } finally {
       setIsLoading(false);
     }
