@@ -3,15 +3,21 @@ import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { m3uService } from "@/services/m3uService";
+import { xtreamService } from "@/services/xtreamService";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
-import { Play, Settings2, LogOut, RefreshCw, Info } from "lucide-react";
+import { Play, Settings2, LogOut, RefreshCw, Info, Database } from "lucide-react";
 
 export default function SettingsPage() {
   const [playlistInfo, setPlaylistInfo] = useState<{ url: string; } | null>(null);
   const [activeTab, setActiveTab] = useState("general");
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [useXtreamMetadata, setUseXtreamMetadata] = useState(() => {
+    return localStorage.getItem("use_xtream_metadata") === "true";
+  });
   const navigate = useNavigate();
   
   useEffect(() => {
@@ -28,6 +34,8 @@ export default function SettingsPage() {
   
   const handleDisconnect = () => {
     m3uService.clearCredentials();
+    xtreamService.clearCredentials();
+    localStorage.removeItem("use_xtream_metadata");
     toast.success("Disconnected from playlist");
     navigate("/");
   };
@@ -45,6 +53,22 @@ export default function SettingsPage() {
     } finally {
       setIsRefreshing(false);
     }
+  };
+
+  const handleToggleXtreamMetadata = (checked: boolean) => {
+    setUseXtreamMetadata(checked);
+    localStorage.setItem("use_xtream_metadata", checked.toString());
+    
+    toast.success(
+      checked 
+        ? "Xtream metadata mode enabled" 
+        : "Xtream metadata mode disabled", 
+      {
+        description: checked 
+          ? "Using Xtream API for categories and metadata" 
+          : "Using M3U playlist for all data"
+      }
+    );
   };
   
   if (!playlistInfo) {
@@ -73,7 +97,7 @@ export default function SettingsPage() {
             </TabsList>
             
             <TabsContent value="general">
-              <div className="space-y-4">
+              <div className="space-y-6">
                 <div>
                   <h3 className="text-lg font-medium mb-2">Player Settings</h3>
                   <p className="text-muted-foreground mb-4">
@@ -83,6 +107,40 @@ export default function SettingsPage() {
                   <div className="text-sm text-muted-foreground">
                     <p>More player settings coming soon.</p>
                   </div>
+                </div>
+                
+                <div className="border-t pt-4">
+                  <h3 className="text-lg font-medium mb-2 flex items-center gap-2">
+                    <Database className="h-4 w-4" />
+                    Data Source Settings
+                  </h3>
+                  
+                  <div className="flex items-center space-x-2 mb-4">
+                    <Switch 
+                      id="use-xtream-metadata" 
+                      checked={useXtreamMetadata}
+                      onCheckedChange={handleToggleXtreamMetadata}
+                    />
+                    <Label htmlFor="use-xtream-metadata">Use Xtream API for metadata</Label>
+                  </div>
+                  
+                  <p className="text-sm text-muted-foreground">
+                    When enabled, Harmony will use the Xtream API for fetching categories and metadata,
+                    while still using M3U links for playback. This provides better organization without
+                    affecting playback quality.
+                  </p>
+                  
+                  {useXtreamMetadata && !xtreamService.isAuthenticated() && (
+                    <div className="mt-4 p-4 bg-yellow-100 dark:bg-yellow-900/30 rounded-md text-sm">
+                      <p className="font-medium text-yellow-800 dark:text-yellow-200 mb-2">
+                        Xtream credentials not set
+                      </p>
+                      <p className="text-yellow-700 dark:text-yellow-300">
+                        You need to connect your Xtream account to use this feature.
+                        Go to the playlist tab to disconnect and reconnect with Xtream credentials.
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
             </TabsContent>
