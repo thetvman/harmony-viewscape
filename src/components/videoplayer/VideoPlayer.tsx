@@ -1,3 +1,4 @@
+
 import { useRef, useEffect, useState } from "react";
 import Hls from "hls.js";
 import { Card } from "@/components/ui/card";
@@ -26,6 +27,7 @@ export default function VideoPlayer({
 }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const hlsRef = useRef<Hls | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState(1);
@@ -80,94 +82,110 @@ export default function VideoPlayer({
       }
     };
 
+    // Clean up any existing HLS instance
+    if (hlsRef.current) {
+      hlsRef.current.destroy();
+      hlsRef.current = null;
+    }
+
     const setupHlsStreaming = (sourceUrl: string) => {
       if (Hls.isSupported()) {
+        // Create new HLS instance with XHR loader configuration
         const hls = new Hls({
           enableWorker: true,
           lowLatencyMode: sourceUrl.includes(".m3u8"),
           debug: false,
+          xhrSetup: (xhr, url) => {
+            // Configure XHR for TS files
+            if (url.includes(".ts")) {
+              // Use CORS proxy for .ts files
+              const proxiedUrl = getProxiedUrl(url);
+              xhr.open('GET', proxiedUrl, true);
+              console.log("XHR loader using proxied URL for TS file:", proxiedUrl);
+            }
+          },
         });
         
-        const urlToUse = sourceUrl.includes(".ts") ? getProxiedUrl(sourceUrl) : sourceUrl;
+        hlsRef.current = hls;
         
-        hls.loadSource(urlToUse);
+        // Use the original URL for the manifest
+        hls.loadSource(sourceUrl);
         hls.attachMedia(video);
         
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          console.log("HLS manifest parsed successfully");
           handleAutoPlay();
         });
         
         hls.on(Hls.Events.ERROR, (event, data) => {
+          console.warn("HLS error:", data);
+          
           if (data.fatal) {
-            console.error("HLS error:", data);
+            console.error("Fatal HLS error:", data);
             
-            if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-              console.log("Network error, trying direct playback...");
-              
-              if (window.MediaSource && sourceUrl.includes(".ts")) {
-                console.log("Using MediaSource for TS playback");
-                video.src = getProxiedUrl(sourceUrl);
-                handleAutoPlay();
-              } else {
-                video.src = sourceUrl;
-                handleAutoPlay();
-              }
-            } else {
-              toast.error("Stream loading error", {
-                description: "There was an issue loading the stream. Please try again.",
-              });
+            switch (data.type) {
+              case Hls.ErrorTypes.NETWORK_ERROR:
+                console.log("Network error, attempting recovery...");
+                hls.startLoad();
+                break;
+              case Hls.ErrorTypes.MEDIA_ERROR:
+                console.log("Media error, attempting recovery...");
+                hls.recoverMediaError();
+                break;
+              default:
+                console.error("Unrecoverable HLS error");
+                // Fall back to direct playback as last resort
+                if (window.MediaSource && sourceUrl.includes(".ts")) {
+                  video.src = getProxiedUrl(sourceUrl);
+                  handleAutoPlay();
+                } else {
+                  video.src = sourceUrl;
+                  handleAutoPlay();
+                }
+                break;
             }
           }
         });
         
         return true;
       }
+      
+      console.warn("HLS.js is not supported in this browser");
       return false;
     };
 
-    if (src.includes(".m3u8") || src.includes(".ts")) {
-      const hlsSetup = setupHlsStreaming(src);
+    // Always try to use HLS.js first
+    if (setupHlsStreaming(src) === false) {
+      // Fallback if HLS.js is not supported
+      console.log("Falling back to native playback");
       
-      if (!hlsSetup) {
-        if (video.canPlayType("application/vnd.apple.mpegurl") && src.includes(".m3u8")) {
-          video.src = src;
-          handleAutoPlay();
-        } else if (video.canPlayType("video/mp2t") && src.includes(".ts")) {
-          video.src = src;
-          handleAutoPlay();
-        } else if (src.includes(".ts")) {
-          console.log("TS not natively supported, using proxy");
-          video.src = getProxiedUrl(src);
-          handleAutoPlay();
-          
-          const handleError = () => {
-            console.error("Error with proxied TS playback");
-            toast.error("Format not supported", {
-              description: "Your browser doesn't support this video format. Try using our web-based transcoder or download the stream to play locally.",
-              action: {
-                label: "Learn More",
-                onClick: () => {
-                  window.open("https://www.videolan.org/vlc/", "_blank");
-                },
-              },
-              duration: 10000,
-            });
-          };
-          
-          video.addEventListener("error", handleError);
-          
-          return () => {
-            video.removeEventListener("error", handleError);
-          };
-        } else {
-          toast.error("Unsupported format", {
-            description: "Your browser doesn't support this video format. Please try a different browser or player.",
-          });
-        }
+      if (src.includes(".ts")) {
+        console.log("TS playback using proxied URL");
+        video.src = getProxiedUrl(src);
+      } else {
+        video.src = src;
       }
-    } else {
-      video.src = src;
+      
       handleAutoPlay();
+      
+      // Add error handler for native playback
+      const handleError = () => {
+        console.error("Native playback error");
+        toast.error("Format not supported", {
+          description: "Your browser doesn't support this video format. Try using VLC player instead.",
+          action: {
+            label: "Use VLC",
+            onClick: () => openInVlc(),
+          },
+          duration: 10000,
+        });
+      };
+      
+      video.addEventListener("error", handleError);
+      
+      return () => {
+        video.removeEventListener("error", handleError);
+      };
     }
 
     return () => {
@@ -175,6 +193,12 @@ export default function VideoPlayer({
       video.removeEventListener("timeupdate", handleTimeUpdate);
       video.removeEventListener("play", handlePlay);
       video.removeEventListener("pause", handlePause);
+      
+      // Clean up HLS instance on unmount
+      if (hlsRef.current) {
+        hlsRef.current.destroy();
+        hlsRef.current = null;
+      }
     };
   }, [src, autoPlay]);
 
