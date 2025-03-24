@@ -3,7 +3,7 @@ import Hls from "hls.js";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
-import { Volume2, VolumeX, Maximize, Pause, Play, SkipBack, SkipForward } from "lucide-react";
+import { Volume2, VolumeX, Maximize, Pause, Play, SkipBack, SkipForward, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -297,6 +297,27 @@ export default function VideoPlayer({
     video.currentTime = Math.min(video.duration, video.currentTime + 10);
   };
 
+  const openInVlc = () => {
+    try {
+      const vlcUrl = `vlc://${src}`;
+      window.location.href = vlcUrl;
+      
+      toast.info("Opening in VLC", {
+        description: "If VLC doesn't open automatically, you may need to install it or set it as the default application.",
+        duration: 5000
+      });
+    } catch (error) {
+      console.error("Error opening VLC:", error);
+      toast.error("Failed to open VLC", {
+        description: "Make sure VLC is installed on your device.",
+        action: {
+          label: "Download VLC",
+          onClick: () => window.open("https://www.videolan.org/vlc/", "_blank")
+        }
+      });
+    }
+  };
+
   return (
     <Card 
       ref={containerRef}
@@ -332,7 +353,18 @@ export default function VideoPlayer({
       {controls && showControls && (
         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent flex flex-col justify-end p-4 transition-opacity duration-300">
           {title && (
-            <h3 className="text-white text-lg font-medium mb-2">{title}</h3>
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="text-white text-lg font-medium">{title}</h3>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-white hover:bg-white/20 flex items-center gap-1 text-xs"
+                onClick={openInVlc}
+              >
+                <ExternalLink className="h-3 w-3" />
+                Open in VLC
+              </Button>
+            </div>
           )}
           
           <div className="flex items-center gap-2 mb-2">
