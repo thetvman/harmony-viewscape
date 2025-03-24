@@ -8,10 +8,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Pagination } from "@/components/ui/pagination";
 import VideoPlayer from "@/components/videoplayer/VideoPlayer";
-import { Loader2, Search, List, Play, ChevronRight } from "lucide-react";
+import { Loader2, Search, List, Play, ChevronRight, ListVideo, Check, Eye } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 const Series = () => {
   const navigate = useNavigate();
@@ -24,6 +26,7 @@ const Series = () => {
   const [seasons, setSeasons] = useState<Record<string, XtreamSeason>>({});
   const [episodes, setEpisodes] = useState<Record<string, XtreamEpisode[]>>({});
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingEpisodes, setIsLoadingEpisodes] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [seasonDialogOpen, setSeasonDialogOpen] = useState(false);
   
@@ -105,20 +108,13 @@ const Series = () => {
       setSelectedSeries(info.info);
       setSeasons(info.seasons);
       
-      // Get episodes for all seasons
-      const allEpisodes: Record<string, XtreamEpisode[]> = {};
-      
-      Object.keys(info.seasons).forEach(seasonKey => {
-        const episodesForSeason = info.seasons[seasonKey];
-        allEpisodes[seasonKey] = [];
-      });
-      
-      setEpisodes(allEpisodes);
-      
       // Select the first season if available
       const seasonKeys = Object.keys(info.seasons);
       if (seasonKeys.length > 0) {
         setSelectedSeason(seasonKeys[0]);
+        
+        // Load episodes for the first season
+        await loadEpisodesForSeason(series.series_id, seasonKeys[0]);
       }
       
       setSeasonDialogOpen(true);
@@ -127,6 +123,40 @@ const Series = () => {
       toast.error("Failed to load series info");
     } finally {
       setIsLoading(false);
+    }
+  };
+  
+  const loadEpisodesForSeason = async (seriesId: number, seasonNum: string) => {
+    try {
+      setIsLoadingEpisodes(true);
+      
+      const seriesInfo = await xtreamService.getSeriesInfo(seriesId);
+      if (seriesInfo.episodes && seriesInfo.episodes[seasonNum]) {
+        setEpisodes(prevEpisodes => ({
+          ...prevEpisodes,
+          [seasonNum]: seriesInfo.episodes[seasonNum] || []
+        }));
+      } else {
+        // Fallback to getEpisodes if episodes not included in seriesInfo
+        const allEpisodes = await xtreamService.getEpisodes(seriesId, seasonNum);
+        setEpisodes(allEpisodes);
+      }
+    } catch (error) {
+      console.error(`Failed to load episodes for season ${seasonNum}:`, error);
+      toast.error(`Failed to load episodes for season ${seasonNum}`);
+    } finally {
+      setIsLoadingEpisodes(false);
+    }
+  };
+  
+  const handleSeasonChange = async (seasonNum: string) => {
+    setSelectedSeason(seasonNum);
+    
+    // If episodes for this season aren't loaded yet, load them
+    if (!episodes[seasonNum] || episodes[seasonNum].length === 0) {
+      if (selectedSeries) {
+        await loadEpisodesForSeason(selectedSeries.series_id, seasonNum);
+      }
     }
   };
   
@@ -300,7 +330,7 @@ const Series = () => {
               
               <Tabs 
                 value={selectedSeason || undefined}
-                onValueChange={(value) => setSelectedSeason(value)}
+                onValueChange={handleSeasonChange}
                 className="w-full"
               >
                 <TabsList className="mb-4 flex flex-wrap">
@@ -318,30 +348,48 @@ const Series = () => {
                 {Object.entries(seasons).map(([seasonNum, season]) => (
                   <TabsContent key={seasonNum} value={seasonNum} className="border rounded-md">
                     <div className="p-4">
-                      <h3 className="font-medium mb-4">Episodes</h3>
+                      <h3 className="font-medium mb-4 flex items-center gap-2">
+                        <ListVideo className="h-4 w-4" />
+                        Episodes
+                      </h3>
                       
                       <div className="space-y-2 max-h-[40vh] overflow-y-auto">
-                        {episodes[seasonNum] && episodes[seasonNum].length > 0 ? (
+                        {isLoadingEpisodes ? (
+                          <div className="flex items-center justify-center py-4">
+                            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                          </div>
+                        ) : episodes[seasonNum] && episodes[seasonNum].length > 0 ? (
                           episodes[seasonNum].map((episode) => (
                             <div
                               key={episode.id}
-                              className="flex items-center justify-between p-2 hover:bg-accent rounded-md cursor-pointer"
+                              className="flex items-center justify-between p-2 hover:bg-accent rounded-md cursor-pointer group"
                               onClick={() => handleEpisodeClick(episode)}
                             >
-                              <div className="flex items-center gap-2">
-                                <div className="font-medium min-w-8 text-center">
+                              <div className="flex items-center gap-2 flex-1">
+                                <div className="font-medium min-w-8 text-center bg-muted rounded-full h-6 w-6 flex items-center justify-center text-xs">
                                   {episode.episode_num}
                                 </div>
-                                <div className="flex-1">
-                                  {episode.title}
+                                <div className="flex-1 truncate">
+                                  <div className="font-medium text-sm">{episode.title}</div>
+                                  {episode.info?.duration_secs && (
+                                    <div className="text-xs text-muted-foreground">
+                                      {Math.floor(episode.info.duration_secs / 60)} min
+                                    </div>
+                                  )}
                                 </div>
                               </div>
-                              <Play className="h-4 w-4 text-primary" />
+                              <Button 
+                                size="icon" 
+                                variant="ghost" 
+                                className="opacity-0 group-hover:opacity-100 transition-opacity"
+                              >
+                                <Play className="h-4 w-4 text-primary" />
+                              </Button>
                             </div>
                           ))
                         ) : (
                           <div className="text-center py-4 text-muted-foreground">
-                            <p>Loading episodes...</p>
+                            <p>No episodes found for this season</p>
                           </div>
                         )}
                       </div>

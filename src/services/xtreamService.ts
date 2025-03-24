@@ -1,3 +1,4 @@
+
 import { toast } from "sonner";
 import {
   XtreamCredentials,
@@ -206,12 +207,30 @@ class XtreamService {
     return data;
   }
 
-  public async getSeriesInfo(seriesId: number): Promise<{info: XtreamSeries, seasons: Record<string, XtreamSeason>}> {
-    const data = await this.fetchData<{info: XtreamSeries, seasons: Record<string, XtreamSeason>}>('', {
-      action: 'get_series_info',
-      series_id: seriesId.toString()
-    });
-    return data;
+  public async getSeriesInfo(seriesId: number): Promise<{
+    info: XtreamSeries, 
+    seasons: Record<string, XtreamSeason>,
+    episodes: Record<string, XtreamEpisode[]>
+  }> {
+    try {
+      const data = await this.fetchData<{
+        info: XtreamSeries, 
+        seasons: Record<string, XtreamSeason>,
+        episodes: Record<string, XtreamEpisode[]>
+      }>('', {
+        action: 'get_series_info',
+        series_id: seriesId.toString()
+      });
+      
+      return {
+        info: data.info,
+        seasons: data.seasons,
+        episodes: data.episodes || {}
+      };
+    } catch (error) {
+      console.error("Error fetching series info:", error);
+      throw error;
+    }
   }
 
   public async getEpisodes(seriesId: number, seasonNumber: string): Promise<Record<string, XtreamEpisode[]>> {
@@ -219,7 +238,7 @@ class XtreamService {
       action: 'get_series_info',
       series_id: seriesId.toString()
     });
-    return data.episodes;
+    return data.episodes || {};
   }
 }
 
