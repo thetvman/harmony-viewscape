@@ -102,6 +102,69 @@ export default function VideoPlayer({
           });
         }
       }
+    } else if (src.includes(".ts")) {
+      if (Hls.isSupported()) {
+        const hls = new Hls({
+          enableWorker: true,
+        });
+        hls.loadSource(src);
+        hls.attachMedia(video);
+        
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          if (autoPlay) {
+            video.play().catch(err => {
+              console.error("Autoplay failed:", err);
+              setAutoplayFailed(true);
+              toast.info("Click play to start streaming", {
+                description: "Autoplay is restricted by your browser",
+                duration: 5000,
+              });
+            });
+          }
+        });
+        
+        hls.on(Hls.Events.ERROR, (event, data) => {
+          if (data.fatal) {
+            console.error("TS stream error:", data);
+            
+            if (video.canPlayType("video/mp2t")) {
+              console.log("Falling back to native TS playback");
+              video.src = src;
+              if (autoPlay) {
+                video.play().catch(err => {
+                  console.error("Native TS autoplay failed:", err);
+                  setAutoplayFailed(true);
+                  toast.error("Stream loading error", {
+                    description: "There was an issue loading the TS stream. Please try again.",
+                  });
+                });
+              }
+            } else {
+              toast.error("Stream loading error", {
+                description: "Your browser doesn't support this video format.",
+              });
+            }
+          }
+        });
+      } else if (video.canPlayType("video/mp2t")) {
+        video.src = src;
+        if (autoPlay) {
+          video.play().catch(err => {
+            console.error("TS autoplay failed:", err);
+            setAutoplayFailed(true);
+            toast.info("Click play to start streaming", {
+              description: "Autoplay is restricted by your browser",
+              duration: 5000,
+            });
+          });
+        }
+      } else {
+        console.error("Browser doesn't support TS format");
+        toast.error("Unsupported format", {
+          description: "Your browser doesn't support MPEG-TS video format.",
+        });
+        video.src = "";
+      }
     } else {
       video.src = src;
       if (autoPlay) {
