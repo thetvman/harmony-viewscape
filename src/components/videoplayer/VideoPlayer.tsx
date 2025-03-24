@@ -35,6 +35,13 @@ export default function VideoPlayer({
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [autoplayFailed, setAutoplayFailed] = useState(false);
 
+  const getProxiedUrl = (originalUrl: string): string => {
+    if (originalUrl.includes(".ts")) {
+      return `https://cors-anywhere.herokuapp.com/${originalUrl}`;
+    }
+    return originalUrl;
+  };
+
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -60,113 +67,7 @@ export default function VideoPlayer({
     video.addEventListener("play", handlePlay);
     video.addEventListener("pause", handlePause);
 
-    if (src.includes(".m3u8")) {
-      if (Hls.isSupported()) {
-        const hls = new Hls({
-          enableWorker: true,
-          lowLatencyMode: true,
-        });
-        hls.loadSource(src);
-        hls.attachMedia(video);
-        hls.on(Hls.Events.MANIFEST_PARSED, () => {
-          if (autoPlay) {
-            video.play().catch(err => {
-              console.error("Autoplay failed:", err);
-              setAutoplayFailed(true);
-              toast.info("Click play to start streaming", {
-                description: "Autoplay is restricted by your browser",
-                duration: 5000,
-              });
-            });
-          }
-        });
-        
-        hls.on(Hls.Events.ERROR, (event, data) => {
-          if (data.fatal) {
-            console.error("HLS error:", data);
-            toast.error("Stream loading error", {
-              description: "There was an issue loading the stream. Please try again.",
-            });
-          }
-        });
-      } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
-        video.src = src;
-        if (autoPlay) {
-          video.play().catch(err => {
-            console.error("Autoplay failed:", err);
-            setAutoplayFailed(true);
-            toast.info("Click play to start streaming", {
-              description: "Autoplay is restricted by your browser",
-              duration: 5000,
-            });
-          });
-        }
-      }
-    } else if (src.includes(".ts")) {
-      if (Hls.isSupported()) {
-        const hls = new Hls({
-          enableWorker: true,
-        });
-        hls.loadSource(src);
-        hls.attachMedia(video);
-        
-        hls.on(Hls.Events.MANIFEST_PARSED, () => {
-          if (autoPlay) {
-            video.play().catch(err => {
-              console.error("Autoplay failed:", err);
-              setAutoplayFailed(true);
-              toast.info("Click play to start streaming", {
-                description: "Autoplay is restricted by your browser",
-                duration: 5000,
-              });
-            });
-          }
-        });
-        
-        hls.on(Hls.Events.ERROR, (event, data) => {
-          if (data.fatal) {
-            console.error("TS stream error:", data);
-            
-            if (video.canPlayType("video/mp2t")) {
-              console.log("Falling back to native TS playback");
-              video.src = src;
-              if (autoPlay) {
-                video.play().catch(err => {
-                  console.error("Native TS autoplay failed:", err);
-                  setAutoplayFailed(true);
-                  toast.error("Stream loading error", {
-                    description: "There was an issue loading the TS stream. Please try again.",
-                  });
-                });
-              }
-            } else {
-              toast.error("Stream loading error", {
-                description: "Your browser doesn't support this video format.",
-              });
-            }
-          }
-        });
-      } else if (video.canPlayType("video/mp2t")) {
-        video.src = src;
-        if (autoPlay) {
-          video.play().catch(err => {
-            console.error("TS autoplay failed:", err);
-            setAutoplayFailed(true);
-            toast.info("Click play to start streaming", {
-              description: "Autoplay is restricted by your browser",
-              duration: 5000,
-            });
-          });
-        }
-      } else {
-        console.error("Browser doesn't support TS format");
-        toast.error("Unsupported format", {
-          description: "Your browser doesn't support MPEG-TS video format.",
-        });
-        video.src = "";
-      }
-    } else {
-      video.src = src;
+    const handleAutoPlay = () => {
       if (autoPlay) {
         video.play().catch(err => {
           console.error("Autoplay failed:", err);
@@ -177,6 +78,96 @@ export default function VideoPlayer({
           });
         });
       }
+    };
+
+    const setupHlsStreaming = (sourceUrl: string) => {
+      if (Hls.isSupported()) {
+        const hls = new Hls({
+          enableWorker: true,
+          lowLatencyMode: sourceUrl.includes(".m3u8"),
+          debug: false,
+        });
+        
+        const urlToUse = sourceUrl.includes(".ts") ? getProxiedUrl(sourceUrl) : sourceUrl;
+        
+        hls.loadSource(urlToUse);
+        hls.attachMedia(video);
+        
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          handleAutoPlay();
+        });
+        
+        hls.on(Hls.Events.ERROR, (event, data) => {
+          if (data.fatal) {
+            console.error("HLS error:", data);
+            
+            if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+              console.log("Network error, trying direct playback...");
+              
+              if (window.MediaSource && sourceUrl.includes(".ts")) {
+                console.log("Using MediaSource for TS playback");
+                video.src = getProxiedUrl(sourceUrl);
+                handleAutoPlay();
+              } else {
+                video.src = sourceUrl;
+                handleAutoPlay();
+              }
+            } else {
+              toast.error("Stream loading error", {
+                description: "There was an issue loading the stream. Please try again.",
+              });
+            }
+          }
+        });
+        
+        return true;
+      }
+      return false;
+    };
+
+    if (src.includes(".m3u8") || src.includes(".ts")) {
+      const hlsSetup = setupHlsStreaming(src);
+      
+      if (!hlsSetup) {
+        if (video.canPlayType("application/vnd.apple.mpegurl") && src.includes(".m3u8")) {
+          video.src = src;
+          handleAutoPlay();
+        } else if (video.canPlayType("video/mp2t") && src.includes(".ts")) {
+          video.src = src;
+          handleAutoPlay();
+        } else if (src.includes(".ts")) {
+          console.log("TS not natively supported, using proxy");
+          video.src = getProxiedUrl(src);
+          handleAutoPlay();
+          
+          const handleError = () => {
+            console.error("Error with proxied TS playback");
+            toast.error("Format not supported", {
+              description: "Your browser doesn't support this video format. Try using our web-based transcoder or download the stream to play locally.",
+              action: {
+                label: "Learn More",
+                onClick: () => {
+                  window.open("https://www.videolan.org/vlc/", "_blank");
+                },
+              },
+              duration: 10000,
+            });
+          };
+          
+          video.addEventListener("error", handleError);
+          
+          return () => {
+            video.removeEventListener("error", handleError);
+          };
+        } else {
+          toast.error("Unsupported format", {
+            description: "Your browser doesn't support this video format. Please try a different browser or player.",
+          });
+        }
+      }
+    } else {
+      video.src = src;
+      handleAutoPlay();
     }
 
     return () => {
