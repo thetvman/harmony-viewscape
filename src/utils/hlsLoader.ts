@@ -55,23 +55,20 @@ export function configureHlsLoader(hls: Hls): void {
   // Add enhanced error handling
   hls.config.enableWorker = true;
   
-  // Fix: Update fragLoadPolicy to correctly implement RetryConfig
+  // Fix: Update fragLoadPolicy structure to match HLS.js types
   hls.config.fragLoadPolicy = {
     default: {
-      retryDelayMs: 1000,
-      maxRetryDelayMs: 8000,
       maxTimeToFirstByteMs: 20000,
       maxLoadTimeMs: 20000,
-      // Fix: Add missing RetryConfig properties
       errorRetry: { 
         maxNumRetry: 3,
-        retryDelayMs: 1000,
-        maxRetryDelayMs: 8000
+        retryDelay: 1000,
+        maxRetryDelay: 8000
       },
       timeoutRetry: { 
         maxNumRetry: 3,
-        retryDelayMs: 1000,
-        maxRetryDelayMs: 8000
+        retryDelay: 1000,
+        maxRetryDelay: 8000
       },
       maxRetry: 3
     }
